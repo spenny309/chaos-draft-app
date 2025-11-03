@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-// Assuming stores are in src/state/ based on your import paths
+// Assuming state is in src/state
 import { useSessionStore } from "../state/sessionStore";
 import { useInventoryStore, type Pack } from "../state/inventoryStore";
 
@@ -8,7 +8,6 @@ import selectedSoundFile from "../assets/selected.mp3";
 
 export default function Draft() {
   const {
-    // ✅ ADDED sessionId
     sessionId,
     players,
     packsSelectedOrder,
@@ -34,6 +33,7 @@ export default function Draft() {
   const [showPopup, setShowPopup] = useState(false);
   const [selectedForDisplay, setSelectedForDisplay] = useState<Pack | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
+  const [noPacksAlert, setNoPacksAlert] = useState(false);
 
   const offsetRef = useRef(0);
   const requestRef = useRef<number | null>(null);
@@ -52,12 +52,12 @@ export default function Draft() {
 
   useEffect(() => {
     selectedSound.current = new Audio(selectedSoundFile);
-    selectedSound.current.volume = 0.5;
+    selectedSound.current.volume = 0.35;
   }, []);
 
   useEffect(() => {
     tickSound.current = new Audio(tickSoundFile);
-    tickSound.current.volume = 0.25;
+    tickSound.current.volume = 0.1;
   }, []);
 
   const playTick = () => {
@@ -71,8 +71,6 @@ export default function Draft() {
 
   /** Initialize buffer */
   useEffect(() => {
-    // This effect now ONLY runs when the sessionId changes (i.e., new session or reset)
-    // It is no longer triggered by tempInventory updates during a spin.
     if (tempInventory.length > 0) {
       const allPacks = tempInventory;
       const leftPadding = [...allPacks, ...allPacks].slice(-5);
@@ -85,17 +83,14 @@ export default function Draft() {
       setBuffer(initialBuffer);
       offsetRef.current = leftPadding.length * packTotalWidth;
     } else {
-      // If inventory is empty (e.g., after reset or logout), clear the buffer
       setBuffer([]);
       offsetRef.current = 0;
     }
-    // ✅ CHANGED: Dependency array no longer includes tempInventory
-  }, [sessionId, packTotalWidth]); // Re-run only when session changes
+  }, [sessionId, packTotalWidth]); // Only re-run on new session
 
   /** Weighted random selection */
   const pickWeightedRandomPack = (): Pack | null => {
     if (confirmed) return null;
-    // We check tempInventory from the session store, which is the source of truth for the draft
     if (!tempInventory.length) return null;
 
     const available = tempInventory.filter(
@@ -118,7 +113,7 @@ export default function Draft() {
     if (!spinStartTime.current) spinStartTime.current = time;
     const elapsed = time - spinStartTime.current;
     const t = Math.min(elapsed / spinDuration.current, 1);
-    const eased = easeOutQuint(t);
+    const eased = easeOutQuint(t); // Reverted to easeOutQuint
     const newOffset =
       startOffset.current + (targetOffset.current - startOffset.current) * eased;
     offsetRef.current = newOffset;
@@ -171,7 +166,7 @@ export default function Draft() {
           selectPackForNextPlayer(selectedPackRef.current);
           selectedPackRef.current = null;
         }
-      }, 400);
+      }, 100); // <-- REDUCED DELAY
     }
   };
 
@@ -180,15 +175,15 @@ export default function Draft() {
     if (spinning || confirmed) return;
     const selectedPack = pickWeightedRandomPack();
     if (!selectedPack) {
-      // Use a custom modal/alert here if you have one
-      alert("No packs left!");
+      setNoPacksAlert(true); // Use modal instead of alert
       return;
     }
     setShowPopup(false);
     setSelectedForDisplay(null);
     selectedPackRef.current = selectedPack;
     setSpinning(true);
-    spinDuration.current = 2500 + Math.random() * 1000;
+    // Set duration to 8-12 seconds (10s +/- 2s)
+    spinDuration.current = 8000 + Math.random() * 4000;
     startOffset.current = offsetRef.current;
     const allPacks = tempInventory;
     let singleCycle = allPacks.filter((p) => p.id !== selectedPack.id);
@@ -223,39 +218,55 @@ export default function Draft() {
     requestRef.current = requestAnimationFrame(animate);
   };
 
-  /** Handle Confirm Logic */
-  const isDraftComplete = packsSelectedOrder.length === numPacks;
-
   const handleConfirm = async () => {
     setIsConfirming(true);
     await confirmSession();
     setIsConfirming(false);
   };
 
-  /** Button States */
+  const isDraftComplete = packsSelectedOrder.length === numPacks;
+
+  // Calculate the next player's name
+  let nextPlayerName = "";
+  if (players.length > 0 && !isDraftComplete) {
+    const nextPlayerIndex = packsSelectedOrder.length % players.length;
+    nextPlayerName = players[nextPlayerIndex]?.name || "";
+  }
+
   const canSpin = !spinning && !!pickWeightedRandomPack() && !confirmed;
   const canUndo = packsSelectedOrder.length > 0 && !spinning && !confirmed;
 
-  /** --- UI --- */
+  // New variable for button text
+  const spinButtonText = () => {
+    if (spinning) return "Spinning...";
+    if (isDraftComplete) return "Draft Complete";
+    if (nextPlayerName) return `Spin for ${nextPlayerName}`;
+    return "Spin for Next Player";
+  };
+
   return (
-    <div className="max-w-5xl mx-auto space-y-8">
-      <h2 className="text-2xl font-bold">🎡 Chaos Draft</h2>
+    <div className="max-w-6xl mx-auto space-y-8">
+      <h2 className="text-3xl font-bold text-white">🎡 Chaos Draft</h2>
 
       {/* --- Spinner --- */}
-      <div className="relative flex items-center justify-center h-64">
+      <div className="relative flex items-center justify-center h-72">
         {inventoryLoading ? (
-          <div className="text-xl font-semibold">Loading Inventory...</div>
+          <div className="text-xl font-semibold text-gray-400">
+            Loading Inventory...
+          </div>
         ) : buffer.length === 0 ? (
           <div className="text-center text-gray-400">
             <h3 className="text-xl font-semibold">No Packs Found</h3>
-            <p>
-              Please log in and add packs to your inventory to start a draft.
-            </p>
+            <p>Go to "Session Setup" to start a new draft.</p>
           </div>
         ) : (
           <div
-            className="overflow-hidden relative border border-gray-700 rounded-lg bg-gray-900"
-            style={{ width: visibleWidth, height: 240 }}
+            className="overflow-hidden relative border border-gray-700 rounded-2xl bg-gray-800"
+            style={{
+              width: visibleWidth,
+              height: 260,
+              perspective: "1000px",
+            }}
           >
             {/* Center selector */}
             <div
@@ -270,23 +281,41 @@ export default function Draft() {
                   ? "translateX(-50%) scale(1.05)"
                   : "translateX(-50%)",
                 width: `${packWidth}px`,
+                margin: "auto 0",
+                height: "240px",
+                top: "10px",
               }}
             />
 
             <div
-              className="flex absolute top-0 left-0 h-full"
+              className="flex absolute top-0 left-0 h-full items-center"
               style={{
                 transform: `translateX(${-offsetRef.current}px)`,
                 transition: spinning ? "none" : "transform 0.3s ease-out",
                 paddingLeft: `${visibleWidth / 2 - packWidth / 2}px`,
                 gap: `${packGap}px`,
+                transformStyle: "preserve-3d",
               }}
             >
               {buffer.map((pack, idx) => {
                 const packPosition = idx * packTotalWidth;
+                const distFromCenter = packPosition - offsetRef.current;
                 const isCentered =
-                  Math.abs(packPosition - offsetRef.current) <
-                  packTotalWidth / 2;
+                  Math.abs(distFromCenter) < packTotalWidth / 2;
+
+                // --- 3D Transform Calculations ---
+                const clampedDist = Math.max(
+                  -visibleWidth,
+                  Math.min(visibleWidth, distFromCenter)
+                );
+
+                const rotationY = clampedDist / 60;
+                const translationZ = -Math.abs(clampedDist) / 10;
+                const scale = Math.max(
+                  0.9,
+                  1 - Math.abs(clampedDist) / 5000
+                );
+
                 const selectedEntry = packsSelectedOrder.find(
                   (s) => s.id === pack.id
                 );
@@ -299,18 +328,18 @@ export default function Draft() {
                 return (
                   <div
                     key={`${pack.id}-${idx}`}
-                    className={`flex-shrink-0 overflow-hidden rounded-md transition-all duration-200 relative ${
-                      isCentered && justFinished
-                        ? "ring-4 ring-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.6)]"
-                        : ""
-                    }`}
+                    // Removed overflow-hidden to allow for 3D effects
+                    className="flex-shrink-0 rounded-md transition-all duration-200 relative"
                     style={{
                       width: `${packWidth}px`,
-                      height: "220px",
+                      height: "240px",
                       minWidth: `${packWidth}px`,
                       maxWidth: `${packWidth}px`,
-                      transform:
-                        isCentered && justFinished ? "scale(1.03)" : "scale(1)",
+                      transform: `
+                        scale(${isCentered && justFinished ? scale * 1.03 : scale})
+                        rotateY(${rotationY}deg)
+                        translateZ(${translationZ}px)
+                      `,
                       filter: selectedEntry
                         ? "grayscale(100%) brightness(0.4)"
                         : isCentered
@@ -318,20 +347,43 @@ export default function Draft() {
                         : spinning
                         ? "brightness(0.7)"
                         : "brightness(0.85)",
+                      // Add transform-style to allow 3D children
+                      transformStyle: "preserve-3d",
                     }}
                   >
-                    <img
-                      src={pack.imageUrl}
-                      alt={pack.name}
+                    {/* This div will hold the pack and its shine */}
+                    <div
+                      className="relative w-full h-full"
                       style={{
-                        width: `${packWidth}px`,
-                        height: "220px",
-                        objectFit: "cover",
-                        display: "block",
+                        transform: `rotateY(${rotationY * 0.1}deg)`, // Slight inner rotation
+                        boxShadow: "inset 0 0 15px 5px rgba(0,0,0,0.3)", // Puffy shadow
+                        borderRadius: "0.375rem", // matches parent
                       }}
-                    />
+                    >
+                      <img
+                        src={pack.imageUrl}
+                        alt={pack.name}
+                        className="w-full h-full object-cover rounded-md" // rounded-md to match
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src =
+                            "https://placehold.co/200x280/1F2937/FFF?text=No+Image";
+                        }}
+                      />
+                      {/* Foil Shine Overlay */}
+                      <div
+                        className="absolute inset-0 rounded-md opacity-70 mix-blend-overlay"
+                        style={{
+                          background:
+                            "linear-gradient(110deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.25) 50%, rgba(255,255,255,0) 100%)",
+                          backgroundSize: "200% 100%",
+                          // Animate the shine based on the pack's position
+                          backgroundPosition: `${-rotationY * 3}px 0`,
+                        }}
+                      />
+                    </div>
+
                     {playerWhoSelected && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-md">
                         <div className="text-white font-bold text-sm bg-blue-600 px-3 py-1 rounded-full shadow-lg">
                           {playerWhoSelected.name}
                         </div>
@@ -346,12 +398,12 @@ export default function Draft() {
 
         {/* --- Popup --- */}
         {showPopup && selectedForDisplay && (
-          <div className="absolute inset-0 flex items-center justify-center z-50 animate-in fade-in zoom-in duration-300">
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center animate-in fade-in zoom-in duration-300">
             <div
-              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+              className="absolute inset-0"
               onClick={() => setShowPopup(false)}
             />
-            <div className="relative bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-8 shadow-2xl border-4 border-yellow-400 max-w-md animate-in slide-in-from-bottom-4 duration-500">
+            <div className="relative bg-gray-800 rounded-2xl p-8 shadow-2xl border-4 border-yellow-400 max-w-md animate-in slide-in-from-bottom-4 duration-500">
               <div className="absolute -top-3 -right-3 bg-yellow-400 text-gray-900 font-bold text-lg px-4 py-1 rounded-full shadow-lg">
                 SELECTED!
               </div>
@@ -368,9 +420,29 @@ export default function Draft() {
                 </h3>
                 <button
                   onClick={() => setShowPopup(false)}
-                  className="mt-2 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold px-8 py-3 rounded-lg shadow-lg transition-all hover:scale-105"
+                  className="mt-2 bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-bold px-8 py-3 rounded-lg shadow-lg transition-all hover:scale-105"
                 >
                   Continue
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- No Packs Alert --- */}
+        {noPacksAlert && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center">
+            <div className="bg-gray-800 p-8 rounded-2xl shadow-2xl border border-gray-700 max-w-sm w-full">
+              <h3 className="text-2xl font-bold text-white">No Packs Left!</h3>
+              <p className="text-gray-400 mt-2">
+                All available packs have been selected for this draft.
+              </p>
+              <div className="flex gap-4 mt-6">
+                <button
+                  onClick={() => setNoPacksAlert(false)}
+                  className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg"
+                >
+                  OK
                 </button>
               </div>
             </div>
@@ -383,26 +455,25 @@ export default function Draft() {
         <button
           onClick={handleSpin}
           disabled={!canSpin || inventoryLoading || buffer.length === 0}
-          className={`px-6 py-2 rounded-md font-semibold transition-all ${
-            !canSpin || inventoryLoading || buffer.length === 0
-              ? "bg-gray-600 cursor-not-allowed"
-              : "bg-green-600 hover:bg-green-700 hover:scale-105"
-          }`}
+          className="px-8 py-4 rounded-lg font-bold text-xl transition-all shadow-lg disabled:bg-gray-600 disabled:shadow-none disabled:cursor-not-allowed
+                     bg-blue-600 hover:bg-blue-700 text-white hover:shadow-blue-500/30"
         >
-          {spinning ? "Spinning..." : "Spin"}
+          {spinButtonText()}
         </button>
       </div>
 
       {/* --- Player list --- */}
       <div>
-        <h3 className="mt-4 text-xl font-semibold mb-3">Players & Picks</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <h3 className="mt-4 text-2xl font-semibold mb-3">Players & Picks</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {players.map((player) => (
             <div
               key={player.id}
-              className="bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-700"
+              className="bg-gray-800 p-4 rounded-xl shadow-lg border border-gray-700"
             >
-              <h4 className="text-lg font-semibold mb-3">{player.name}</h4>
+              <h4 className="text-lg font-semibold mb-3 text-white">
+                {player.name}
+              </h4>
               <div className="flex flex-wrap gap-3">
                 {player.selectedPacks.map((pack) => (
                   <button
@@ -433,11 +504,11 @@ export default function Draft() {
       </div>
 
       {/* --- Session Management Buttons --- */}
-      <div className="mt-8 flex justify-center gap-4">
+      <div className="mt-8 flex justify-center gap-4 flex-wrap">
         <button
           onClick={resetSession}
           disabled={isConfirming}
-          className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-md font-semibold disabled:bg-gray-600"
+          className="bg-red-700 hover:bg-red-800 text-white px-5 py-3 rounded-lg font-semibold disabled:bg-gray-600"
         >
           Reset Session
         </button>
@@ -445,20 +516,20 @@ export default function Draft() {
         <button
           onClick={undoLastPick}
           disabled={!canUndo}
-          className="bg-yellow-600 hover:bg-yellow-700 px-4 py-2 rounded-md font-semibold disabled:bg-gray-600 disabled:cursor-not-allowed"
+          className="bg-yellow-600 hover:bg-yellow-700 text-white px-5 py-3 rounded-lg font-semibold disabled:bg-gray-600 disabled:cursor-not-allowed"
         >
           Undo Last Pick
         </button>
 
         {confirmed ? (
-          <div className="px-4 py-2 rounded-md font-semibold bg-green-800 text-white shadow-lg">
+          <div className="px-5 py-3 rounded-lg font-semibold bg-green-800 text-white shadow-lg">
             🎉 Draft Complete!
           </div>
         ) : (
           <button
             onClick={handleConfirm}
             disabled={!isDraftComplete || isConfirming || spinning}
-            className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-md font-semibold transition-all disabled:bg-gray-600 disabled:cursor-not-allowed"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-semibold transition-all disabled:bg-gray-600 disabled:cursor-not-allowed"
           >
             {isConfirming
               ? "Confirming..."

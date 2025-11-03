@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-// ✅ FIXED: Import auth service from our config, and functions from 'firebase/auth'
 import { auth } from "../firebase";
 import {
   createUserWithEmailAndPassword,
@@ -7,8 +6,25 @@ import {
   signOut,
   onAuthStateChanged,
 } from "firebase/auth";
-// ✅ FIXED: Import User as a type for verbatimModuleSyntax
 import type { User } from "firebase/auth";
+
+// Simple "Lock" icon as a placeholder
+const AuthIcon = () => (
+  <svg
+    className="w-14 h-14 text-blue-400"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+    />
+  </svg>
+);
 
 export default function Auth() {
   const [email, setEmail] = useState("");
@@ -17,26 +33,27 @@ export default function Auth() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Listen for authentication state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
     });
-    // Cleanup subscription on unmount
     return () => unsubscribe();
   }, []);
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters long.");
+      return;
+    }
     try {
       await createUserWithEmailAndPassword(auth, email, password);
-      // User state will be updated by onAuthStateChanged
       setEmail("");
       setPassword("");
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message.replace("Firebase: ", ""));
     }
   };
 
@@ -45,11 +62,10 @@ export default function Auth() {
     setError("");
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      // User state will be updated by onAuthStateChanged
       setEmail("");
       setPassword("");
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message.replace("Firebase: ", ""));
     }
   };
 
@@ -57,28 +73,22 @@ export default function Auth() {
     setError("");
     try {
       await signOut(auth);
-      // User state will be updated by onAuthStateChanged
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message.replace("Firebase: ", ""));
     }
   };
 
   if (loading) {
-    return (
-      <div className="p-4 text-center text-gray-400">Loading user...</div>
-    );
+    return <div className="p-4 text-center text-gray-400">Loading user...</div>;
   }
 
+  // --- LOGGED IN STATE ---
   if (user) {
     return (
-      <div className="p-4 bg-gray-800 rounded-lg shadow-md border border-gray-700 flex justify-between items-center">
-        <div>
-          <span className="text-gray-300">Logged in as:</span>
-          <span className="ml-2 font-semibold text-white">{user.email}</span>
-        </div>
+      <div className="flex justify-end items-center w-full">
         <button
           onClick={handleLogOut}
-          className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors"
+          className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 rounded-lg text-sm transition-all hover:shadow-lg"
         >
           Log Out
         </button>
@@ -86,12 +96,24 @@ export default function Auth() {
     );
   }
 
+  // --- LOGGED OUT STATE (NEW DESIGN) ---
+  // This part will be centered on the whole page by the new App.tsx logic
   return (
-    <div className="max-w-md mx-auto p-6 bg-gray-800 rounded-lg shadow-lg border border-gray-700">
-      <form className="space-y-4">
-        <h2 className="text-2xl font-bold text-center text-white">
-          Login or Sign Up
+    <div
+      className="w-full max-w-xl p-10 space-y-8 bg-gray-800 rounded-2xl shadow-2xl border border-gray-700
+                 transition-all duration-300 ease-in-out hover:scale-[1.01] hover:shadow-blue-500/20"
+    >
+      <div className="flex flex-col items-center">
+        <AuthIcon />
+        <h2 className="mt-6 text-4xl font-extrabold text-center text-white">
+          Welcome Back
         </h2>
+        <p className="mt-2 text-center text-lg text-gray-400">
+          Log in or sign up to manage your drafts
+        </p>
+      </div>
+
+      <form className="space-y-6">
         <div>
           <label
             htmlFor="email"
@@ -104,7 +126,7 @@ export default function Auth() {
             id="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 block w-full px-4 py-4 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             placeholder="you@example.com"
           />
         </div>
@@ -120,25 +142,27 @@ export default function Auth() {
             id="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 block w-full px-4 py-4 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             placeholder="••••••••"
           />
         </div>
         {error && (
-          <p className="text-sm text-red-400 text-center">{error}</p>
+          <p className="text-sm text-red-400 text-center font-medium">
+            {error}
+          </p>
         )}
-        <div className="flex gap-4">
+        <div className="flex flex-col gap-4 pt-4">
           <button
             onClick={handleLogIn}
             type="submit"
-            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors"
+            className="w-full py-4 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-blue-500/30 text-base"
           >
             Log In
           </button>
           <button
             onClick={handleSignUp}
             type="button"
-            className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors"
+            className="w-full py-4 px-4 bg-gray-800 text-gray-300 ring-2 ring-gray-600 hover:bg-gray-700 font-bold rounded-lg transition-all text-base"
           >
             Sign Up
           </button>

@@ -12,7 +12,7 @@ import {
   writeBatch,
   getDoc,
 } from "firebase/firestore";
-import { db, auth } from "../firebase"; // Import from your firebase.ts
+import { db, auth } from "../firebase";
 
 export interface Pack {
   id: string; // Firestore document ID (string)
@@ -27,13 +27,12 @@ interface InventoryState {
   loading: boolean;
   addPack: (pack: Omit<Pack, "id" | "ownerId">) => Promise<void>;
   updatePack: (pack: Pack) => Promise<void>;
-  deletePack: (id: string) => Promise<void>; // ID is now string
+  deletePack: (id: string) => Promise<void>;
   loadPacks: () => Promise<void>;
   clearAll: () => Promise<void>;
   confirmSessionPicks: (selectedPacks: Pack[]) => Promise<void>;
 }
 
-// Helper reference to the 'packs' collection
 const packsCollectionRef = collection(db, "packs");
 
 export const useInventoryStore = create<InventoryState>((set, get) => ({
@@ -42,14 +41,10 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
 
   loadPacks: async () => {
     const userId = auth.currentUser?.uid;
-    if (!userId) {
-      return set({ packs: [], loading: false });
-    }
+    if (!userId) return set({ packs: [], loading: false });
 
     set({ loading: true });
     try {
-      // This query works because App.tsx only calls it AFTER login,
-      // and it only queries for the user's own packs.
       const q = query(packsCollectionRef, where("ownerId", "==", userId));
       const querySnapshot = await getDocs(q);
       const packs: Pack[] = querySnapshot.docs.map((doc) => ({
@@ -59,31 +54,54 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
       set({ packs, loading: false });
     } catch (error) {
       console.error("Error loading packs: ", error);
-      // This is a good place to check your Firestore Security Rules!
+      // This is often a permission error or a missing index.
+      // Check the developer console for a link to create the index.
       set({ loading: false });
     }
   },
 
+  /**
+   * ✅ UPDATED addPack function with "upsert" logic.
+   * If a pack with the same name exists, it updates the quantity and image.
+   * Otherwise, it creates a new pack.
+   */
   addPack: async (pack) => {
     const userId = auth.currentUser?.uid;
-    if (!userId) {
-      console.error("Cannot add pack, no user logged in.");
-      return;
-    }
+    if (!userId) return;
 
     try {
-      // We no longer check for duplicates, which removes the
-      // complex query that was failing.
-      await addDoc(packsCollectionRef, {
-        ...pack,
-        ownerId: userId,
-      });
+      // 1. Check for duplicates (same name, same owner)
+      const q = query(
+        packsCollectionRef,
+        where("ownerId", "==", userId),
+        where("name", "==", pack.name)
+      );
+      const querySnapshot = await getDocs(q);
 
-      // After adding, reload all packs from the DB to update the state
+      if (!querySnapshot.empty) {
+        // 2. DUPLICATE FOUND: Update the existing pack
+        const existingDoc = querySnapshot.docs[0];
+        const existingPack = existingDoc.data() as Omit<Pack, "id">;
+        const docRef = doc(db, "packs", existingDoc.id);
+
+        await updateDoc(docRef, {
+          quantity: existingPack.quantity + pack.quantity,
+          imageUrl: pack.imageUrl, // Use the new image URL
+        });
+      } else {
+        // 3. NEW PACK: Add it
+        await addDoc(packsCollectionRef, {
+          ...pack,
+          ownerId: userId,
+        });
+      }
+      
+      // 4. Refresh the state from the DB to show the change
       await get().loadPacks();
+
     } catch (error) {
       console.error("Error adding pack: ", error);
-      // If this fails, check your Firestore Security Rules for 'create'.
+      // IMPORTANT: See note below about this error.
     }
   },
 
@@ -113,7 +131,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
       const docSnap = await getDoc(docRef);
       if (docSnap.exists() && docSnap.data().ownerId === userId) {
         await deleteDoc(docRef);
-        set({ packs: get().packs.filter((p) => p.id !== id) }); // Optimistic update
+        set((state) => ({ packs: state.packs.filter((p) => p.id !== id) }));
       } else {
         console.error("No such document or permission denied.");
       }
@@ -136,18 +154,16 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
       });
       await batch.commit();
 
-      set({ packs: [] }); // Update state
+      set({ packs: [] });
     } catch (error) {
       console.error("Error clearing all packs: ", error);
     }
   },
 
-  // ✅ --- UPDATED confirmSessionPicks FUNCTION ---
   confirmSessionPicks: async (selectedPacks) => {
     const userId = auth.currentUser?.uid;
     if (!userId) return;
 
-    // Count how many of each unique pack ID were selected.
     const packCounts = new Map<string, number>();
     for (const pack of selectedPacks) {
       packCounts.set(pack.id, (packCounts.get(pack.id) || 0) + 1);
@@ -155,47 +171,34 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
 
     try {
       await runTransaction(db, async (transaction) => {
-        // --- 1. READ PHASE ---
-        // Create an array of all document references we need to read.
-        const refsToRead = Array.from(packCounts.keys()).map((packId) =>
-          doc(db, "packs", packId)
-        );
-
-        // Read all documents in parallel.
-        const packDocs = await Promise.all(
-          refsToRead.map((ref) => transaction.get(ref))
-        );
-
-        const updates: {
-          ref: typeof refsToRead[0];
+        const docsToUpdate: {
+          docRef: any;
           newQuantity: number;
         }[] = [];
 
-        // --- 2. LOGIC PHASE (no reads or writes) ---
-        // Process the results of our reads.
-        for (const packDoc of packDocs) {
+        // 1. READS FIRST
+        for (const [packId, numPicked] of packCounts.entries()) {
+          const docRef = doc(db, "packs", packId);
+          const packDoc = await transaction.get(docRef);
+
           if (!packDoc.exists() || packDoc.data().ownerId !== userId) {
-            throw new Error(`Pack ${packDoc.id} not found or permission denied.`);
+            throw new Error(`Pack ${packId} not found or permission denied.`);
           }
 
-          const numPicked = packCounts.get(packDoc.id) || 0;
           const newQuantity = Math.max(
             0,
             packDoc.data().quantity - numPicked
           );
-
-          updates.push({ ref: packDoc.ref, newQuantity });
+          docsToUpdate.push({ docRef, newQuantity });
         }
 
-        // --- 3. WRITE PHASE ---
-        // All reads are done. Now, queue all writes.
-        for (const update of updates) {
-          transaction.update(update.ref, { quantity: update.newQuantity });
+        // 2. WRITES SECOND
+        for (const { docRef, newQuantity } of docsToUpdate) {
+          transaction.update(docRef, { quantity: newQuantity });
         }
       });
 
-      // After transaction succeeds, reload the state from the DB
-      await get().loadPacks();
+      await get().loadPacks(); // Refresh state after transaction
     } catch (error) {
       console.error("Failed to confirm session transaction: ", error);
     }
