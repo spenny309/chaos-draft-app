@@ -1,6 +1,6 @@
 import { useState } from "react";
 // Assuming state is in src/state
-import { useInventoryStore, type Pack } from "../state/inventoryStore";
+import { useInventoryStore } from "../state/inventoryStore";
 import { auth } from "../firebase";
 import Papa from "papaparse";
 
