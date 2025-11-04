@@ -1,25 +1,29 @@
 import { useState } from "react";
 // Assuming state is in src/state
-import { useInventoryStore } from "../state/inventoryStore";
+import { useInventoryStore, type Pack } from "../state/inventoryStore";
 import { auth } from "../firebase";
+import Papa from "papaparse";
 
 export default function Inventory() {
   const { packs, loading, addPack, updatePack, deletePack, clearAll } =
     useInventoryStore();
 
-  // ✅ Broke state into individual fields for better control
   const [newPackName, setNewPackName] = useState("");
   const [newPackImageUrl, setNewPackImageUrl] = useState("");
-  const [newPackQuantity, setNewPackQuantity] = useState(""); // ✅ Changed to string
+  const [newPackQuantity, setNewPackQuantity] = useState("");
 
   const [isAdding, setIsAdding] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
+  // --- State for Bulk Import ---
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState("");
+  const [importSuccess, setImportSuccess] = useState("");
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPackName.trim() || isAdding || !auth.currentUser) return;
-
-    // ✅ Parse the quantity string, defaulting to 1 if empty or invalid
     const quantity = Math.max(1, Number(newPackQuantity) || 1);
 
     setIsAdding(true);
@@ -31,17 +35,131 @@ export default function Inventory() {
       quantity: quantity,
     });
 
-    // ✅ Reset all fields to empty
     setNewPackName("");
     setNewPackImageUrl("");
     setNewPackQuantity("");
-
     setIsAdding(false);
   };
 
   const handleClear = async () => {
     await clearAll();
     setShowClearConfirm(false);
+  };
+
+  // --- Handlers for Bulk Import ---
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setImportError("");
+    setImportSuccess("");
+    if (e.target.files && e.target.files[0]) {
+      setImportFile(e.target.files[0]);
+    }
+  };
+
+  const handleBulkImport = () => {
+    if (!importFile) {
+      setImportError("Please select a CSV file first.");
+      return;
+    }
+
+    setIsImporting(true);
+    setImportError("");
+    setImportSuccess("");
+
+    Papa.parse(importFile, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        try {
+          // 1. Map to hold merged packs
+          const mergedPacks = new Map<
+            string,
+            { name: string; quantity: number; imageUrl: string }
+          >();
+
+          for (const row of results.data as any[]) {
+            // 2. Find pack name from common header names
+            const packName =
+              row["Pack Name"] || row["name"] || row["Name"] || row["Pack"];
+            const imageUrl =
+              row["Image URL"] || row["imageUrl"] || row["Image"] || row["URL"];
+            const quantity =
+              row["Quantity"] || row["qty"] || row["Qty"] || row["Count"];
+
+            const parsedQuantity = Number(quantity);
+
+            // 3. Validate and process the row
+            if (
+              packName &&
+              typeof packName === "string" &&
+              packName.trim() &&
+              imageUrl &&
+              typeof imageUrl === "string" &&
+              imageUrl.trim() &&
+              !isNaN(parsedQuantity) &&
+              parsedQuantity > 0
+            ) {
+              const key = packName.trim().toLowerCase();
+              const existing = mergedPacks.get(key);
+
+              if (existing) {
+                // 4. Combine duplicates: Sum quantity
+                existing.quantity += parsedQuantity;
+                // Pick one image URL (last one wins)
+                existing.imageUrl = imageUrl;
+              } else {
+                // 5. Add new unique pack to the map
+                mergedPacks.set(key, {
+                  name: packName.trim(), // Keep original capitalization
+                  quantity: parsedQuantity,
+                  imageUrl: imageUrl,
+                });
+              }
+            }
+          }
+
+          if (mergedPacks.size === 0) {
+            setImportError(
+              "No valid packs found. Check headers (e.g., 'Pack Name', 'Image URL', 'Quantity') and ensure all rows have valid data."
+            );
+            setIsImporting(false);
+            return;
+          }
+
+          // 6. Create an array of promises to call addPack for each unique pack
+          const importPromises = Array.from(mergedPacks.values()).map(
+            (pack) =>
+              addPack({
+                name: pack.name,
+                imageUrl: pack.imageUrl,
+                quantity: pack.quantity,
+              })
+          );
+
+          // 7. Run all database transactions
+          await Promise.all(importPromises);
+
+          setImportSuccess(
+            `Successfully imported ${mergedPacks.size} unique packs.`
+          );
+        } catch (err) {
+          setImportError("An error occurred during import. Check console.");
+          console.error(err);
+        } finally {
+          setIsImporting(false);
+          setImportFile(null);
+          // Clear the file input
+          const fileInput = document.getElementById(
+            "csv-upload"
+          ) as HTMLInputElement;
+          if (fileInput) fileInput.value = "";
+        }
+      },
+      error: (err) => {
+        setIsImporting(false);
+        setImportError(err.message);
+      },
+    });
   };
 
   return (
@@ -86,7 +204,6 @@ export default function Inventory() {
               type="number"
               min={1}
               className="mt-1 block w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              // ✅ Bind to string state and add placeholder
               value={newPackQuantity}
               placeholder="1"
               onChange={(e) => setNewPackQuantity(e.target.value)}
@@ -165,6 +282,48 @@ export default function Inventory() {
         ))}
       </div>
 
+      {/* --- Bulk Import Section (MOVED) --- */}
+      <div className="p-6 bg-gray-800 rounded-2xl shadow-lg border border-gray-700 space-y-4">
+        <h3 className="text-xl font-semibold text-white">Bulk Import</h3>
+        <p className="text-gray-400 text-sm">
+          Upload a CSV file with columns: "Pack Name", "Image URL", and
+          "Quantity".
+        </p>
+        <div className="flex flex-col sm:flex-row gap-4">
+          <input
+            type="file"
+            id="csv-upload"
+            accept=".csv"
+            onChange={handleFileChange}
+            className="flex-1 block w-full text-sm text-gray-400
+                       file:mr-4 file:py-2 file:px-4
+                       file:rounded-lg file:border-0
+                       file:text-sm file:font-semibold
+                       file:bg-gray-700 file:text-blue-300
+                       hover:file:bg-gray-600"
+          />
+          <button
+            onClick={handleBulkImport}
+            disabled={!importFile || isImporting}
+            className="py-3 px-6 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-green-500/30 text-base disabled:bg-gray-500"
+          >
+            {isImporting ? "Importing..." : "Upload & Import"}
+          </button>
+        </div>
+        {importError && (
+          <p className="text-sm text-red-400 text-center font-medium">
+            {importError}
+          </p>
+        )}
+        {importSuccess && (
+          <p className="text-sm text-green-400 text-center font-medium">
+            {importSuccess}
+          </p>
+        )}
+      </div>
+      {/* --- End Bulk Import Section --- */}
+
+      {/* --- Clear All Section (MOVED) --- */}
       {packs.length > 0 && (
         <div className="pt-6 border-t border-gray-700 text-right">
           <button
@@ -175,6 +334,7 @@ export default function Inventory() {
           </button>
         </div>
       )}
+      {/* --- End Clear All Section --- */}
 
       {/* Clear Confirmation Modal */}
       {showClearConfirm && (
