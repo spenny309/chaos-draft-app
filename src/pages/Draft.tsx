@@ -1,10 +1,138 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 // Assuming state is in src/state
 import { useSessionStore } from "../state/sessionStore";
 import { useInventoryStore, type Pack } from "../state/inventoryStore";
 
 import tickSoundFile from "../assets/tick.mp3";
 import selectedSoundFile from "../assets/selected.mp3";
+
+// --- REFACTOR HELPER FUNCTIONS ---
+
+/**
+ * Optionally trims the buffer if it's getting too large.
+ * @returns A new, smaller buffer and the pixel adjustment needed for the offset.
+ */
+const trimBuffer = ({
+  buffer,
+  offset,
+  visibleWidth,
+  packTotalWidth,
+  packWidth,
+  packGap,
+  bufferPadding,
+}: {
+  buffer: Pack[];
+  offset: number;
+  visibleWidth: number;
+  packTotalWidth: number;
+  packWidth: number;
+  packGap: number;
+  bufferPadding: number;
+}) => {
+  if (buffer.length <= 150) {
+    return { trimmedBuffer: buffer, offsetAdjustment: 0 };
+  }
+
+  const currentPackIndex = Math.round(offset / packTotalWidth);
+  const packsInViewport = Math.ceil(visibleWidth / packTotalWidth) + 2;
+  const startKeep = Math.max(0, currentPackIndex - bufferPadding);
+  const endKeep = currentPackIndex + packsInViewport + bufferPadding;
+
+  const trimmedBuffer = buffer.slice(startKeep, endKeep);
+  const offsetAdjustment = startKeep * packWidth + startKeep * packGap;
+
+  return { trimmedBuffer, offsetAdjustment };
+};
+
+/**
+ * Creates the list of packs that will be spun through during the animation.
+ * @returns The list of packs to append, the number of packs in the "revolution" part,
+ * and the shuffled list used to create it (for the fallback).
+ */
+const createAnimationCycles = (
+  availablePacks: Pack[],
+  baseRevolutions: number,
+  varianceRevolutions: number
+) => {
+  const shuffledPacks = [...availablePacks];
+  for (let i = shuffledPacks.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffledPacks[i], shuffledPacks[j]] = [
+      shuffledPacks[j],
+      shuffledPacks[i],
+    ];
+  }
+
+  const revolutions =
+    baseRevolutions + Math.floor(Math.random() * varianceRevolutions);
+
+  const revolutionCycles = Array.from(
+    { length: revolutions },
+    () => [...shuffledPacks]
+  ).flat();
+
+  const endPadding = shuffledPacks.slice(0, 20);
+
+  return {
+    cycles: [...revolutionCycles, ...endPadding],
+    numRevolutionPacks: revolutionCycles.length,
+    shuffledPacks: shuffledPacks,
+  };
+};
+
+/**
+ * Finds the index of the selected pack in the new animation buffer.
+ * Includes logic to search main cycles, then padding, then a fallback.
+ * @returns The final index (number) to target.
+ */
+const findTargetIndex = ({
+  buffer,
+  searchStartIndex,
+  numRevolutionPacks,
+  selectedPack,
+  fallbackPacks,
+}: {
+  buffer: Pack[];
+  searchStartIndex: number;
+  numRevolutionPacks: number;
+  selectedPack: Pack;
+  fallbackPacks: Pack[];
+}) => {
+  let selectedIndex = -1;
+  const searchEndIndex = searchStartIndex + numRevolutionPacks;
+
+  // Search backwards from the end of the *main* revolutions first
+  for (let i = searchEndIndex - 1; i >= searchStartIndex; i--) {
+    if (buffer[i].id === selectedPack.id) {
+      selectedIndex = i;
+      break;
+    }
+  }
+
+  // If not found, search in the end padding
+  if (selectedIndex === -1) {
+    for (let i = searchEndIndex; i < buffer.length; i++) {
+      if (buffer[i].id === selectedPack.id) {
+        selectedIndex = i;
+        break;
+      }
+    }
+  }
+
+  // If *still* not found, use a random fallback in the last revolution
+  if (selectedIndex === -1) {
+    console.error(
+      "Selected pack not found in animation buffer, using fallback."
+    );
+    const lastRevolutionStartIndex = searchEndIndex - fallbackPacks.length;
+    selectedIndex =
+      lastRevolutionStartIndex +
+      Math.floor(Math.random() * fallbackPacks.length);
+  }
+  return selectedIndex;
+};
+
+// --- COMPONENT START ---
 
 export default function Draft() {
   const {
@@ -24,14 +152,24 @@ export default function Draft() {
 
   const packWidth = 176; // Match selector width (w-44 = 176px)
   const packGap = 8;
-  const visibleWidth = 800;
   const packTotalWidth = packWidth + packGap;
+
+  /** --- Spinner Settings --- */
+  const SPINNER_REVOLUTIONS_BASE = 2;
+  const SPINNER_REVOLUTIONS_VARIANCE = 2;
+  const SPINNER_DURATION_BASE_MS = 6000;
+  const SPINNER_DURATION_VARIANCE_MS = 4000;
+  const SPINNER_TARGET_OFFSET_VARIANCE_PX = 0;
+  const bufferPadding = 25; // PARAMETERIZED: packs to keep before/after visible area
 
   const [buffer, setBuffer] = useState<Pack[]>([]);
   const [spinning, setSpinning] = useState(false);
   const [justFinished, setJustFinished] = useState(false);
   const [showPopup, setShowPopup] = useState(false);
-  const [selectedForDisplay, setSelectedForDisplay] = useState<Pack | null>(null);
+  const [selectedForDisplay, setSelectedForDisplay] = useState<Pack | null>(
+    null
+  );
+  const [visibleWidth, setVisibleWidth] = useState(800);
   const [isConfirming, setIsConfirming] = useState(false);
   const [noPacksAlert, setNoPacksAlert] = useState(false);
 
@@ -42,6 +180,8 @@ export default function Draft() {
   const startOffset = useRef(0);
   const targetOffset = useRef(0);
   const selectedPackRef = useRef<Pack | null>(null);
+  const finalRandomOffset = useRef(0);
+  const spinnerWrapperRef = useRef<HTMLDivElement>(null);
 
   /** --- Sound Settings --- */
   const TICK_INTERVAL_MIN = 70;
@@ -66,14 +206,38 @@ export default function Draft() {
     tickSound.current.play().catch(() => {});
   };
 
-  /** Easing Function */
-  const easeOutQuint = (t: number) => 1 - Math.pow(1 - t, 5);
+  /** Easing Function: A smoother ease-out cubic curve */
+  const easeOutCubic = (t: number) => {
+    const t1 = t - 1;
+    return t1 * t1 * t1 + 1;
+  };
 
-  /** Initialize buffer */
+  /** Measure the spinner width */
   useEffect(() => {
-    if (tempInventory.length > 0) {
+    const measureWidth = () => {
+      if (spinnerWrapperRef.current) {
+        setVisibleWidth(spinnerWrapperRef.current.offsetWidth);
+      }
+    };
+    measureWidth();
+    window.addEventListener("resize", measureWidth);
+    return () => window.removeEventListener("resize", measureWidth);
+  }, []);
+
+  // Effect 1: Reset buffer ONLY on new session
+  useEffect(() => {
+    setBuffer([]);
+    offsetRef.current = 0;
+  }, [sessionId]);
+
+  // Effect 2: Populate buffer when inventory is ready, but ONLY if buffer is empty
+  useEffect(() => {
+    if (tempInventory.length > 0 && buffer.length === 0) {
       const allPacks = tempInventory;
-      const leftPadding = [...allPacks, ...allPacks].slice(-5);
+
+      const leftPadding = [...allPacks, ...allPacks].slice(
+        -(bufferPadding * 2)
+      );
       const initialBuffer = [
         ...leftPadding,
         ...allPacks,
@@ -81,30 +245,47 @@ export default function Draft() {
         ...allPacks,
       ];
       setBuffer(initialBuffer);
-      offsetRef.current = leftPadding.length * packTotalWidth;
-    } else {
-      setBuffer([]);
-      offsetRef.current = 0;
+
+      // offsetRef represents the position that should align with the selector
+      // Using the formula: position = idx * packWidth + idx * packGap
+      const initialIndex = leftPadding.length;
+      offsetRef.current = initialIndex * packWidth + initialIndex * packGap;
+      console.log(
+        `Initial setup: leftPadding.length=${leftPadding.length}, offsetRef=${offsetRef.current}, packWidth=${packWidth}, packGap=${packGap}`
+      );
     }
-  }, [sessionId, packTotalWidth]); // Only re-run on new session
+  }, [
+    tempInventory,
+    buffer.length,
+    packWidth,
+    packGap,
+    bufferPadding,
+    sessionId,
+  ]);
 
-  /** Weighted random selection */
-  const pickWeightedRandomPack = (): Pack | null => {
-    if (confirmed) return null;
-    if (!tempInventory.length) return null;
-
-    const available = tempInventory.filter(
+  // Memoize the list of available packs
+  const availablePacks = useMemo(() => {
+    return tempInventory.filter(
       (p) => !packsSelectedOrder.some((s) => s.id === p.id)
     );
-    if (!available.length) return null;
+  }, [tempInventory, packsSelectedOrder]);
 
-    const totalWeight = available.reduce((sum, p) => sum + p.quantity, 0);
+  /** Weighted random selection */
+  const pickWeightedRandomPack = (packs: Pack[]): Pack | null => {
+    if (confirmed) return null;
+    if (!packs.length) return null;
+
+    const totalWeight = packs.reduce((sum, p) => sum + p.quantity, 0);
+    if (totalWeight <= 0) {
+      return packs[Math.floor(Math.random() * packs.length)];
+    }
+
     let rand = Math.random() * totalWeight;
-    for (const pack of available) {
+    for (const pack of packs) {
       if (rand < pack.quantity) return pack;
       rand -= pack.quantity;
     }
-    return available[available.length - 1];
+    return packs[packs.length - 1];
   };
 
   /** Animate spinner */
@@ -113,11 +294,11 @@ export default function Draft() {
     if (!spinStartTime.current) spinStartTime.current = time;
     const elapsed = time - spinStartTime.current;
     const t = Math.min(elapsed / spinDuration.current, 1);
-    const eased = easeOutQuint(t); // Reverted to easeOutQuint
+    const eased = easeOutCubic(t);
     const newOffset =
       startOffset.current + (targetOffset.current - startOffset.current) * eased;
     offsetRef.current = newOffset;
-    setBuffer((prev) => [...prev]);
+    setBuffer((prev) => [...prev]); // Force re-render of children
 
     if (t < 1) {
       // --- Tick Logic ---
@@ -132,7 +313,7 @@ export default function Draft() {
         )
       );
       const now = performance.now();
-      const packIndex = Math.floor(offsetRef.current / packTotalWidth);
+      const packIndex = Math.round(offsetRef.current / (packWidth + packGap));
       if (
         packIndex !== lastTickPosition.current &&
         (!tickSound.current?.dataset.lastPlay ||
@@ -149,6 +330,7 @@ export default function Draft() {
       setSpinning(false);
       setJustFinished(true);
       spinStartTime.current = 0;
+      setBuffer((prev) => [...prev]); // Trigger final re-render
       if (selectedSound.current) {
         selectedSound.current.currentTime = 0;
         selectedSound.current.playbackRate = 0.65;
@@ -166,55 +348,78 @@ export default function Draft() {
           selectPackForNextPlayer(selectedPackRef.current);
           selectedPackRef.current = null;
         }
-      }, 100); // <-- REDUCED DELAY
+      }, 100);
     }
   };
 
-  /** Handle spin */
+  /**
+   * --- REFACTORED HANDLESPIN ---
+   * This function now orchestrates the spin by calling helper functions.
+   */
   const handleSpin = () => {
+    // 1. Guard Clauses: Check if we can spin
     if (spinning || confirmed) return;
-    const selectedPack = pickWeightedRandomPack();
+    const selectedPack = pickWeightedRandomPack(availablePacks);
     if (!selectedPack) {
-      setNoPacksAlert(true); // Use modal instead of alert
+      setNoPacksAlert(true);
       return;
     }
+
+    // 2. Initial State Setup
     setShowPopup(false);
     setSelectedForDisplay(null);
     selectedPackRef.current = selectedPack;
     setSpinning(true);
-    // Set duration to 8-12 seconds (10s +/- 2s)
-    spinDuration.current = 8000 + Math.random() * 4000;
-    startOffset.current = offsetRef.current;
-    const allPacks = tempInventory;
-    let singleCycle = allPacks.filter((p) => p.id !== selectedPack.id);
-    singleCycle.push(selectedPack);
-    const revolutions = 4 + Math.floor(Math.random() * 3);
-    let animationBuffer = [...buffer];
-    const revolutionCycles = Array.from(
-      { length: revolutions },
-      () => [...singleCycle]
-    ).flat();
-    animationBuffer = [...animationBuffer, ...revolutionCycles];
-    const trailingPacks = [...allPacks, ...allPacks].slice(0, 10);
-    animationBuffer = [...animationBuffer, ...trailingPacks];
-    setBuffer(animationBuffer);
-    const searchStartIndex = buffer.length;
-    const revolutionEndIndex = buffer.length + revolutionCycles.length;
-    let selectedIndex = -1;
-    for (let i = revolutionEndIndex - 1; i >= searchStartIndex; i--) {
-      if (animationBuffer[i].id === selectedPack.id) {
-        selectedIndex = i;
-        break;
-      }
-    }
-    if (selectedIndex === -1) {
-      console.error("Selected pack not found in animation buffer!");
-      selectedIndex = revolutionEndIndex - 1;
-    }
-    const randomOffset = (Math.random() - 0.5) * 30;
-    targetOffset.current = selectedIndex * packTotalWidth + randomOffset;
+
+    // 3. Buffer Trimming: Clean up the buffer before adding to it
+    const { trimmedBuffer, offsetAdjustment } = trimBuffer({
+      buffer,
+      offset: offsetRef.current,
+      visibleWidth,
+      packTotalWidth,
+      packWidth,
+      packGap,
+      bufferPadding,
+    });
+    // Apply the adjustment to the *live* ref
+    offsetRef.current -= offsetAdjustment;
+
+    // 4. Create Animation Cycles: Get the new packs to spin through
+    const { cycles, numRevolutionPacks, shuffledPacks } =
+      createAnimationCycles(
+        availablePacks,
+        SPINNER_REVOLUTIONS_BASE,
+        SPINNER_REVOLUTIONS_VARIANCE
+      );
+
+    const newBuffer = [...trimmedBuffer, ...cycles];
+    const searchStartIndex = trimmedBuffer.length;
+
+    // 5. Find Target Index: Get the exact index to land on
+    const selectedIndex = findTargetIndex({
+      buffer: newBuffer,
+      searchStartIndex,
+      numRevolutionPacks,
+      selectedPack,
+      fallbackPacks: shuffledPacks,
+    });
+
+    // 6. Set Final State & Start Animation
+    setBuffer(newBuffer);
+
+    spinDuration.current =
+      SPINNER_DURATION_BASE_MS + Math.random() * SPINNER_DURATION_VARIANCE_MS;
+    startOffset.current = offsetRef.current; // Use the *adjusted* offset
+
+    finalRandomOffset.current =
+      (Math.random() - 0.5) * SPINNER_TARGET_OFFSET_VARIANCE_PX;
+
+    // Target offset using the same position formula
+    const targetPosition = selectedIndex * packWidth + selectedIndex * packGap;
+    targetOffset.current = targetPosition + finalRandomOffset.current;
+
     spinStartTime.current = 0;
-    lastTickPosition.current = Math.floor(offsetRef.current / packTotalWidth);
+    lastTickPosition.current = Math.round(offsetRef.current / packTotalWidth);
     requestRef.current = requestAnimationFrame(animate);
   };
 
@@ -226,20 +431,19 @@ export default function Draft() {
 
   const isDraftComplete = packsSelectedOrder.length === numPacks;
 
-  // Calculate the next player's name
   let nextPlayerName = "";
   if (players.length > 0 && !isDraftComplete) {
     const nextPlayerIndex = packsSelectedOrder.length % players.length;
     nextPlayerName = players[nextPlayerIndex]?.name || "";
   }
 
-  const canSpin = !spinning && !!pickWeightedRandomPack() && !confirmed;
+  const canSpin = !spinning && availablePacks.length > 0 && !confirmed;
   const canUndo = packsSelectedOrder.length > 0 && !spinning && !confirmed;
 
-  // New variable for button text
   const spinButtonText = () => {
     if (spinning) return "Spinning...";
     if (isDraftComplete) return "Draft Complete";
+    if (!canSpin && !isDraftComplete) return "No Packs Left";
     if (nextPlayerName) return `Spin for ${nextPlayerName}`;
     return "Spin for Next Player";
   };
@@ -261,10 +465,10 @@ export default function Draft() {
           </div>
         ) : (
           <div
-            className="overflow-hidden relative border border-gray-700 rounded-2xl bg-gray-800"
+            ref={spinnerWrapperRef}
+            className="overflow-hidden relative border border-gray-700 rounded-2xl bg-gray-800 w-full"
             style={{
-              width: visibleWidth,
-              height: 260,
+              height: "260px",
               perspective: "1000px",
             }}
           >
@@ -288,110 +492,165 @@ export default function Draft() {
             />
 
             <div
-              className="flex absolute top-0 left-0 h-full items-center"
+              className="flex absolute top-0 h-full items-center"
               style={{
-                transform: `translateX(${-offsetRef.current}px)`,
+                left: "50%",
+                transform: `translateX(calc(-${offsetRef.current}px - ${
+                  packWidth / 2
+                }px))`,
                 transition: spinning ? "none" : "transform 0.3s ease-out",
-                paddingLeft: `${visibleWidth / 2 - packWidth / 2}px`,
-                gap: `${packGap}px`,
                 transformStyle: "preserve-3d",
               }}
             >
-              {buffer.map((pack, idx) => {
-                const packPosition = idx * packTotalWidth;
-                const distFromCenter = packPosition - offsetRef.current;
-                const isCentered =
-                  Math.abs(distFromCenter) < packTotalWidth / 2;
-
-                // --- 3D Transform Calculations ---
-                const clampedDist = Math.max(
-                  -visibleWidth,
-                  Math.min(visibleWidth, distFromCenter)
+              {/* --- VIRTUALIZATION LOGIC START --- */}
+              {(() => {
+                // 1. Calculate the index of the pack currently at the center
+                const centerIndex = Math.round(
+                  offsetRef.current / packTotalWidth
                 );
 
-                const rotationY = clampedDist / 60;
-                const translationZ = -Math.abs(clampedDist) / 10;
-                const scale = Math.max(
-                  0.9,
-                  1 - Math.abs(clampedDist) / 5000
+                // 2. Calculate how many packs are visible on one side
+                const visiblePacksPerSide = Math.ceil(
+                  (visibleWidth / 2) / packTotalWidth
                 );
 
-                const selectedEntry = packsSelectedOrder.find(
-                  (s) => s.id === pack.id
+                // 3. Define the render buffer (how many *extra* packs to render off-screen)
+                const RENDER_BUFFER = 15; // You can tune this number
+
+                // 4. Calculate the start and end index for slicing the buffer
+                const startIndex = Math.max(
+                  0,
+                  centerIndex - visiblePacksPerSide - RENDER_BUFFER
                 );
-                const playerWhoSelected = selectedEntry
-                  ? players.find((p) =>
-                      p.selectedPacks.some((sp) => sp.id === pack.id)
-                    )
-                  : null;
+                const endIndex = Math.min(
+                  buffer.length,
+                  centerIndex + visiblePacksPerSide + RENDER_BUFFER
+                );
+
+                // 5. Slice the buffer *before* mapping
+                const visibleBuffer = buffer.slice(startIndex, endIndex);
+
+                // 6. Calculate the width of the spacer
+                const spacerWidth = startIndex * packTotalWidth;
 
                 return (
-                  <div
-                    key={`${pack.id}-${idx}`}
-                    // Removed overflow-hidden to allow for 3D effects
-                    className="flex-shrink-0 rounded-md transition-all duration-200 relative"
-                    style={{
-                      width: `${packWidth}px`,
-                      height: "240px",
-                      minWidth: `${packWidth}px`,
-                      maxWidth: `${packWidth}px`,
-                      transform: `
-                        scale(${isCentered && justFinished ? scale * 1.03 : scale})
-                        rotateY(${rotationY}deg)
-                        translateZ(${translationZ}px)
-                      `,
-                      filter: selectedEntry
-                        ? "grayscale(100%) brightness(0.4)"
-                        : isCentered
-                        ? "brightness(1.1)"
-                        : spinning
-                        ? "brightness(0.7)"
-                        : "brightness(0.85)",
-                      // Add transform-style to allow 3D children
-                      transformStyle: "preserve-3d",
-                    }}
-                  >
-                    {/* This div will hold the pack and its shine */}
+                  <>
+                    {/* Spacer div */}
                     <div
-                      className="relative w-full h-full"
                       style={{
-                        transform: `rotateY(${rotationY * 0.1}deg)`, // Slight inner rotation
-                        boxShadow: "inset 0 0 15px 5px rgba(0,0,0,0.3)", // Puffy shadow
-                        borderRadius: "0.375rem", // matches parent
+                        width: `${spacerWidth}px`,
+                        flexShrink: 0,
+                        height: "1px",
                       }}
-                    >
-                      <img
-                        src={pack.imageUrl}
-                        alt={pack.name}
-                        className="w-full h-full object-cover rounded-md" // rounded-md to match
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src =
-                            "https://placehold.co/200x280/1F2937/FFF?text=No+Image";
-                        }}
-                      />
-                      {/* Foil Shine Overlay */}
-                      <div
-                        className="absolute inset-0 rounded-md opacity-70 mix-blend-overlay"
-                        style={{
-                          background:
-                            "linear-gradient(110deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.25) 50%, rgba(255,255,255,0) 100%)",
-                          backgroundSize: "200% 100%",
-                          // Animate the shine based on the pack's position
-                          backgroundPosition: `${-rotationY * 3}px 0`,
-                        }}
-                      />
-                    </div>
+                    />
 
-                    {playerWhoSelected && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-md">
-                        <div className="text-white font-bold text-sm bg-blue-600 px-3 py-1 rounded-full shadow-lg">
-                          {playerWhoSelected.name}
+                    {/* Map over *visible* buffer */}
+                    {visibleBuffer.map((pack, i) => {
+                      // 7. Get the *original* index
+                      const idx = startIndex + i;
+
+                      const packPosition = idx * packWidth + idx * packGap;
+                      const distFromCenter = packPosition - offsetRef.current;
+                      const isCentered =
+                        Math.abs(distFromCenter) < packWidth / 2;
+
+                      // --- 3D Transform Calculations ---
+                      const clampedDist = Math.max(
+                        -visibleWidth * 1.5,
+                        Math.min(visibleWidth * 1.5, -distFromCenter)
+                      );
+                      const rotationY = clampedDist / 60;
+                      const translationZ = -Math.abs(clampedDist) / 10;
+
+                      // SMOOTH SCALING
+                      const distanceFromCenter = Math.abs(distFromCenter);
+                      const baseScale = Math.max(
+                        0.85,
+                        1.0 - distanceFromCenter / 2000
+                      );
+                      const finalScale =
+                        isCentered && justFinished
+                          ? baseScale * 1.03
+                          : baseScale;
+
+                      const selectedEntry = packsSelectedOrder.find(
+                        (s) => s.id === pack.id
+                      );
+
+                      const playerWhoSelected = selectedEntry
+                        ? players.find((p) =>
+                            p.selectedPacks.some((sp) => sp.id === pack.id)
+                          )
+                        : null;
+
+                      return (
+                        <div
+                          key={`${pack.id}-${idx}`}
+                          className="flex-shrink-0 rounded-md relative"
+                          style={{
+                            width: `${packWidth}px`,
+                            height: "240px",
+                            minWidth: `${packWidth}px`,
+                            maxWidth: `${packWidth}px`,
+                            marginRight: `${packGap}px`,
+                            transform: `
+                                scale(${finalScale})
+                                rotateY(${rotationY}deg)
+                                translateZ(${translationZ}px)
+                              `,
+                            filter: selectedEntry
+                              ? "grayscale(100%) brightness(0.4)"
+                              : isCentered
+                              ? "brightness(1.1)"
+                              : spinning
+                              ? "brightness(0.7)"
+                              : "brightness(0.85)",
+                            transformStyle: "preserve-3d",
+                          }}
+                        >
+                          <div
+                            className="relative w-full h-full"
+                            style={{
+                              transform: `rotateY(${rotationY * 0.1}deg)`,
+                              boxShadow:
+                                "inset 0 0 15px 5px rgba(0,0,0,0.3)",
+                              borderRadius: "0.375rem",
+                            }}
+                          >
+                            <img
+                              src={pack.imageUrl}
+                              alt={pack.name}
+                              className="w-full h-full object-cover rounded-md"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src =
+                                  "https://placehold.co/200x280/1F2937/FFF?text=No+Image";
+                              }}
+                            />
+                            <div
+                              className="absolute inset-0 rounded-md opacity-70 mix-blend-overlay"
+                              style={{
+                                background:
+                                  "linear-gradient(110deg, rgba(255,255,250) 0%, rgba(255,255,255,0.25) 50%, rgba(255,255,255,0) 100%)",
+                                backgroundSize: "200% 100%",
+                                backgroundPosition: `${-rotationY * 3}px 0`,
+                              }}
+                            />
+                          </div>
+
+                          {playerWhoSelected && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-md">
+                              <div className="text-white font-bold text-sm bg-blue-600 px-3 py-1 rounded-full shadow-lg">
+                                {playerWhoSelected.name}
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    )}
-                  </div>
+                      );
+                    })}
+                  </>
                 );
-              })}
+              })()}
+              {/* --- VIRTUALIZATION LOGIC END --- */}
             </div>
           </div>
         )}
