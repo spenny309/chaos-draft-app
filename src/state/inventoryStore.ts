@@ -11,7 +11,6 @@ import {
   runTransaction,
   writeBatch,
   getDoc,
-  deleteField,
 } from "firebase/firestore";
 import { db, auth } from "../firebase";
 

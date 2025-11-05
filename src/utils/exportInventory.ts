@@ -1,4 +1,4 @@
-import { getFirestore, collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import Papa from "papaparse";
 import { auth, db } from "../firebase"; // ✅ use your initialized Firebase
 
