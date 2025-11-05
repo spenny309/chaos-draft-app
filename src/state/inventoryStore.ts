@@ -6,11 +6,12 @@ import {
   doc,
   updateDoc,
   deleteDoc,
-  query,
   where,
+  query,
   runTransaction,
   writeBatch,
   getDoc,
+  deleteField,
 } from "firebase/firestore";
 import { db, auth } from "../firebase";
 
@@ -18,7 +19,8 @@ export interface Pack {
   id: string; // Firestore document ID (string)
   name: string;
   imageUrl: string;
-  quantity: number;
+  inPerson: number;
+  inTransit: number;
   ownerId: string; // ID of the user who owns this pack
 }
 
@@ -85,7 +87,8 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
         const docRef = doc(db, "packs", existingDoc.id);
 
         await updateDoc(docRef, {
-          quantity: existingPack.quantity + pack.quantity,
+          inPerson: existingPack.inPerson + pack.inPerson,
+          inTransit: existingPack.inTransit + pack.inTransit,
           imageUrl: pack.imageUrl, // Use the new image URL
         });
       } else {
@@ -187,14 +190,14 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
 
           const newQuantity = Math.max(
             0,
-            packDoc.data().quantity - numPicked
+            packDoc.data().inPerson - numPicked
           );
           docsToUpdate.push({ docRef, newQuantity });
         }
 
         // 2. WRITES SECOND
         for (const { docRef, newQuantity } of docsToUpdate) {
-          transaction.update(docRef, { quantity: newQuantity });
+          transaction.update(docRef, { inPerson: newQuantity });
         }
       });
 

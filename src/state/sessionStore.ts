@@ -68,12 +68,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const updatedPlayers = [...players];
     updatedPlayers[playerIndex].selectedPacks.push(pack);
 
-    // Remove pack from tempInventory (decrement quantity)
+    // Decrement 'inPerson' quantity from tempInventory for the selected pack
     const tempInventory = get()
       .tempInventory.map((p) =>
-        p.id === pack.id ? { ...p, quantity: p.quantity - 1 } : p
+        p.id === pack.id ? { ...p, inPerson: p.inPerson - 1 } : p
       )
-      .filter((p) => p.quantity > 0); // remove packs with 0 qty
+      .filter((p) => p.inPerson > 0 || p.inTransit > 0); // Keep packs if they have any quantity
 
     set({
       players: updatedPlayers,
@@ -135,10 +135,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     if (packInTemp) {
       newTempInventory = tempInventory.map((p) =>
-        p.id === lastPackSelected.id ? { ...p, quantity: p.quantity + 1 } : p
+        p.id === lastPackSelected.id ? { ...p, inPerson: p.inPerson + 1 } : p
       );
     } else {
-      newTempInventory = [...tempInventory, lastPackSelected];
+      // If the pack was fully depleted, it was filtered out. Re-add it with a quantity of 1.
+      const packToReAdd = { ...lastPackSelected, inPerson: 1 };
+      newTempInventory = [...tempInventory, packToReAdd];
     }
 
     set({

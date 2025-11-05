@@ -233,7 +233,14 @@ export default function Draft() {
   // Effect 2: Populate buffer when inventory is ready, but ONLY if buffer is empty
   useEffect(() => {
     if (tempInventory.length > 0 && buffer.length === 0) {
-      const allPacks = tempInventory;
+      // --- RANDOMIZATION ADDED ---
+      // Create a shuffled copy of the inventory for a random starting order.
+      const allPacks = [...tempInventory];
+      for (let i = allPacks.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [allPacks[i], allPacks[j]] = [allPacks[j], allPacks[i]];
+      }
+      // --- END RANDOMIZATION ---
 
       const leftPadding = [...allPacks, ...allPacks].slice(
         -(bufferPadding * 2)
@@ -263,29 +270,35 @@ export default function Draft() {
     sessionId,
   ]);
 
-  // Memoize the list of available packs
+  // Memoize the list of packs that are still available to be picked.
   const availablePacks = useMemo(() => {
+    const selectedIds = new Set(packsSelectedOrder.map((p) => p.id));
+    // A pack is available if it hasn't been selected AND has in-person quantity.
     return tempInventory.filter(
-      (p) => !packsSelectedOrder.some((s) => s.id === p.id)
+      (p) => !selectedIds.has(p.id) && p.inPerson > 0
     );
   }, [tempInventory, packsSelectedOrder]);
 
   /** Weighted random selection */
   const pickWeightedRandomPack = (packs: Pack[]): Pack | null => {
     if (confirmed) return null;
-    if (!packs.length) return null;
 
-    const totalWeight = packs.reduce((sum, p) => sum + p.quantity, 0);
+    // The 'packs' argument is already filtered to be only available, un-picked packs.
+    if (!packs.length) return null;
+    const totalWeight = availablePacks.reduce((sum, p) => sum + p.inPerson, 0);
     if (totalWeight <= 0) {
-      return packs[Math.floor(Math.random() * packs.length)];
+      // Fallback for non-weighted packs or if all quantities are 0
+      return availablePacks[Math.floor(Math.random() * availablePacks.length)];
     }
 
     let rand = Math.random() * totalWeight;
-    for (const pack of packs) {
-      if (rand < pack.quantity) return pack;
-      rand -= pack.quantity;
+    for (const pack of availablePacks) {
+      if (rand < pack.inPerson) return pack;
+      rand -= pack.inPerson;
     }
-    return packs[packs.length - 1];
+
+    // Fallback in case of floating point issues
+    return availablePacks[availablePacks.length - 1];
   };
 
   /** Animate spinner */
@@ -385,9 +398,10 @@ export default function Draft() {
     offsetRef.current -= offsetAdjustment;
 
     // 4. Create Animation Cycles: Get the new packs to spin through
+    //    IMPORTANT: We use the full tempInventory for the visual spin.
     const { cycles, numRevolutionPacks, shuffledPacks } =
       createAnimationCycles(
-        availablePacks,
+        tempInventory.filter((p) => p.inPerson > 0), // Visually spin all packs with quantity
         SPINNER_REVOLUTIONS_BASE,
         SPINNER_REVOLUTIONS_VARIANCE
       );
@@ -573,15 +587,18 @@ export default function Draft() {
                           ? baseScale * 1.03
                           : baseScale;
 
-                      const selectedEntry = packsSelectedOrder.find(
-                        (s) => s.id === pack.id
+                      // Find if this pack type has been selected in the current session
+                      const selectedPackInfo = packsSelectedOrder.find(
+                        (p) => p.id === pack.id
                       );
 
-                      const playerWhoSelected = selectedEntry
-                        ? players.find((p) =>
-                            p.selectedPacks.some((sp) => sp.id === pack.id)
-                          )
-                        : null;
+                      const playerWhoSelected = selectedPackInfo
+                        ? players[
+                            packsSelectedOrder.findIndex(
+                              (p) => p.id === pack.id
+                            ) % players.length
+                          ]
+                        : undefined;
 
                       return (
                         <div
@@ -598,7 +615,7 @@ export default function Draft() {
                                 rotateY(${rotationY}deg)
                                 translateZ(${translationZ}px)
                               `,
-                            filter: selectedEntry
+                            filter: selectedPackInfo
                               ? "grayscale(100%) brightness(0.4)"
                               : isCentered
                               ? "brightness(1.1)"
