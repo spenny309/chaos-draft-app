@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useMemo } from "react";
 // Assuming state is in src/state
 import { useSessionStore } from "../state/sessionStore";
 import { useInventoryStore, type Pack } from "../state/inventoryStore";
+import { auth, db } from "../firebase";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 import tickSoundFile from "../assets/tick.mp3";
 import selectedSoundFile from "../assets/selected.mp3";
@@ -439,8 +441,39 @@ export default function Draft() {
 
   const handleConfirm = async () => {
     setIsConfirming(true);
-    await confirmSession();
-    setIsConfirming(false);
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error("User not authenticated");
+      }
+
+      // 1. Prepare draft outcome data for Firestore
+      const draftOutcome = {
+        sessionId,
+        userId: user.uid, // Add the user's ID
+        completedAt: serverTimestamp(),
+        restockComplete: false,
+        players: players.map((p) => ({
+          id: p.id,
+          name: p.name,
+          // Storing only essential pack info
+          packs: p.selectedPacks.map((pack) => ({
+            id: pack.id,
+            name: pack.name,
+            imageUrl: pack.imageUrl,
+          })),
+        })),
+      };
+
+      // 2. Save to Firestore and then confirm the session locally
+      await addDoc(collection(db, "drafts"), draftOutcome);
+      await confirmSession();
+    } catch (error) {
+      console.error("Error saving draft outcome: ", error);
+      // Optionally, show an error to the user
+    } finally {
+      setIsConfirming(false);
+    }
   };
 
   const isDraftComplete = packsSelectedOrder.length === numPacks;

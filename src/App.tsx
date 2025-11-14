@@ -10,6 +10,7 @@ import {
 import Inventory from "./pages/Inventory";
 import SessionSetup from "./pages/SessionSetup";
 import Draft from "./pages/Draft";
+import DraftHistory from "./pages/DraftHistory";
 
 // Firebase & Auth Imports
 import { auth } from "./firebase";
@@ -17,6 +18,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import type { User } from "firebase/auth";
 // Assuming state is in src/state
 import { useInventoryStore } from "./state/inventoryStore";
+import { useDraftHistoryStore } from "./state/draftHistoryStore";
 import Auth from "./components/Auth";
 
 // NavLink component to handle active state
@@ -43,8 +45,10 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   const loadPacks = useInventoryStore((s) => s.loadPacks);
-  const clearPacks = () =>
-    useInventoryStore.setState({ packs: [], loading: false });
+  const clearPacks = useInventoryStore((s) => s.clearAll); // Assuming clearAll exists and resets state
+
+  const loadDrafts = useDraftHistoryStore((s) => s.loadDrafts);
+  const clearDrafts = useDraftHistoryStore((s) => s.clearDrafts);
 
   // Top-level listener for auth changes
   useEffect(() => {
@@ -52,9 +56,13 @@ export default function App() {
       setUser(currentUser);
       setLoading(false);
       if (currentUser) {
+        // Load data for authenticated user
         loadPacks();
+        loadDrafts();
       } else {
+        // Clear data on logout
         clearPacks();
+        clearDrafts();
       }
     });
     return () => unsubscribe();
@@ -94,6 +102,7 @@ export default function App() {
             <NavLink to="/">Session Setup</NavLink>
             <NavLink to="/draft">Draft</NavLink>
             <NavLink to="/inventory">Inventory</NavLink>
+            <NavLink to="/history">History</NavLink>
           </nav>
 
           <div className="w-full md:w-auto">
@@ -108,6 +117,7 @@ export default function App() {
             <Route path="/" element={<SessionSetup />} />
             <Route path="/draft" element={<Draft />} />
             <Route path="/inventory" element={<Inventory />} />
+            <Route path="/history" element={<DraftHistory />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </main>
@@ -115,4 +125,3 @@ export default function App() {
     </Router>
   );
 }
-

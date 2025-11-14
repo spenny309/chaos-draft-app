@@ -25,6 +25,7 @@ export async function exportInventoryToCSV() {
     snapshot.forEach((doc) => {
       const pack = doc.data();
       data.push({
+        "Firestore ID": doc.id,
         "Pack Name": pack.name || "",
         "Image URL": pack.imageUrl || "",
         "Available": pack.inPerson ?? 0,
