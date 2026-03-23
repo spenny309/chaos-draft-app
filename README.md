@@ -1,73 +1,53 @@
-# React + TypeScript + Vite
+# MTG Chaos Draft
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A web app for organizing and running Magic: The Gathering Chaos Draft events. Manage your pack inventory, run animated draft sessions with a spinning wheel, and keep a full history of past drafts.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+### Draft Sessions
+- Configure player count (up to 16) and custom player names
+- Animated spinning wheel selects packs via weighted random draw (weighted by quantity)
+- Round-robin player rotation with audio feedback (tick sounds + chime on selection)
+- Undo last pick, reset session, or confirm when complete
+- Confirming a session saves the draft to history and deducts packs from inventory
 
-## React Compiler
+### Inventory Management
+- Track packs in two states: **Available** (physically on hand) and **In Transit** (on order)
+- Add packs individually with name and image URL, or bulk import via CSV
+- Quick +/- buttons to adjust quantities
+- Export inventory to CSV for backup or sharing
+- Duplicate pack names are merged, not created twice
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Draft History
+- Full record of every completed draft with date and player list
+- Expandable view showing each player's picks
+- **Restock tracking**: automatically flags drafts where packs need physical replenishment, with a "Mark Restock Complete" action
+- Delete a draft to revert its pack quantities back to inventory
 
-## Expanding the ESLint configuration
+## Tech Stack
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- **React 19** + TypeScript, built with Vite
+- **Firebase** (Auth + Firestore) for authentication and data persistence
+- **Zustand** for client-side state management
+- **Tailwind CSS v4** for styling
+- **React Router v7** for navigation
+- **PapaParse** for CSV import/export
+- **Framer Motion** for animations
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Getting Started
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Requires a Firebase project with Firestore and Authentication (email/password) enabled. Add your Firebase config to the environment.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Scripts
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+| Command | Description |
+|---|---|
+| `npm run dev` | Start development server |
+| `npm run build` | Type-check and build for production |
+| `npm run lint` | Run ESLint |
+| `npm run preview` | Preview production build locally |
