@@ -1,10 +1,7 @@
 import { useState, useMemo } from "react";
-import {
-  useDraftHistoryStore,
-  type DraftHistoryEntry,
-  type DraftedPack,
-} from "../state/draftHistoryStore";
+import { useDraftHistoryStore } from "../state/draftHistoryStore";
 import { useInventoryStore } from "../state/inventoryStore";
+import type { Draft, DraftPackRef } from "../types";
 
 export default function DraftHistory() {
   const { drafts, loading, error, deleteDraft, markRestockComplete } =
@@ -15,12 +12,10 @@ export default function DraftHistory() {
 
   const [expandedDraftId, setExpandedDraftId] = useState<string | null>(null);
 
-  // --- ADDED STATE FOR MODAL ---
-  const [selectedPack, setSelectedPack] = useState<DraftedPack | null>(null);
+  const [selectedPack, setSelectedPack] = useState<DraftPackRef | null>(null);
 
   const inventoryMap = useMemo(() => {
     if (inventoryLoading) return new Map<string, number>();
-    // Map pack ID to its 'inPerson' quantity
     return new Map(inventoryPacks.map((p) => [p.id, p.inPerson]));
   }, [inventoryPacks, inventoryLoading]);
 
@@ -28,47 +23,41 @@ export default function DraftHistory() {
     setExpandedDraftId((prevId) => (prevId === draftId ? null : draftId));
   };
 
-  const handleDelete = (draft: DraftHistoryEntry) => {
+  const handleDelete = (draft: Draft) => {
     if (
       !window.confirm(
-        "Are you sure you want to delete this draft?\nAll packs from this draft will be added back to your 'Available' inventory."
+        draft.type === 'chaos'
+          ? "Are you sure you want to delete this draft?\nAll packs from this draft will be added back to the 'Available' inventory."
+          : "Are you sure you want to delete this draft?"
       )
     ) {
       return;
     }
-    deleteDraft(draft.id, draft.players);
+    deleteDraft(draft.id);
   };
 
-  // This component calculates and renders the restock alert
-  const RestockAlert = ({ draft }: { draft: DraftHistoryEntry }) => {
-    // Calculate the list of packs that need restocking
+  // This component calculates and renders the restock alert for chaos drafts
+  const RestockAlert = ({ draft }: { draft: Draft }) => {
     const packsToRestock = useMemo(() => {
-      // Use logical OR (||) to treat undefined as false
       if (draft.restockComplete || inventoryLoading) return [];
+      if (draft.type !== 'chaos' || !draft.packsSelectedOrder) return [];
 
-      const uniquePacks: Map<string, DraftedPack> = new Map();
+      const uniquePacks: Map<string, DraftPackRef> = new Map();
 
-      for (const player of draft.players) {
-        for (const pack of player.packs) {
-          // Check if we still have this pack in our inventory
-          const inventoryCount = inventoryMap.get(pack.id) || 0;
-          if (inventoryCount > 0) {
-            // We have at least one left, so it needs to be replaced
-            uniquePacks.set(pack.id, pack);
-          }
+      for (const pack of draft.packsSelectedOrder) {
+        const inventoryCount = inventoryMap.get(pack.id) || 0;
+        if (inventoryCount > 0) {
+          uniquePacks.set(pack.id, pack);
         }
       }
-      
-      // --- 👇 THIS IS THE CHANGE ---
-      // Convert map values to array and sort alphabetically by name
+
       const packArray = Array.from(uniquePacks.values());
       packArray.sort((a, b) => a.name.localeCompare(b.name));
       return packArray;
-      // --- END OF CHANGE ---
+    }, [draft, inventoryMap, inventoryLoading]);
 
-    }, [draft, inventoryMap, inventoryLoading]); // Depends on the draft and the inventory
+    if (draft.type !== 'chaos') return null;
 
-    // Use logical OR (||) to treat undefined as false
     if (draft.restockComplete) {
       return (
         <div className="mt-6 pt-6 border-t border-gray-700/50">
@@ -82,8 +71,6 @@ export default function DraftHistory() {
     }
 
     if (packsToRestock.length === 0 && !inventoryLoading) {
-      // No restock was ever needed (all packs drafted were the last ones)
-      // We also wait for inventory to be loaded to make this decision
       return (
         <div className="mt-6 pt-6 border-t border-gray-700/50">
           <div className="p-4 rounded-lg bg-gray-700/50 text-center">
@@ -96,7 +83,6 @@ export default function DraftHistory() {
     }
 
     if (packsToRestock.length > 0) {
-      // If we are here, restock is needed and not complete
       return (
         <div className="mt-6 pt-6 border-t border-gray-700/50 space-y-4">
           <div className="p-6 rounded-2xl bg-yellow-900/40 border-2 border-yellow-600/70">
@@ -110,7 +96,6 @@ export default function DraftHistory() {
             <div className="flex flex-wrap gap-4 mb-6">
               {packsToRestock.map((pack) => (
                 <div key={pack.id} className="flex flex-col items-center gap-2">
-                  {/* --- WRAPPED IMAGE IN BUTTON --- */}
                   <button
                     onClick={() => setSelectedPack(pack)}
                     className="focus:outline-none focus:ring-2 focus:ring-yellow-400 rounded-md"
@@ -139,7 +124,6 @@ export default function DraftHistory() {
       );
     }
 
-    // Default return while inventory is loading
     return null;
   };
 
@@ -173,7 +157,6 @@ export default function DraftHistory() {
       ) : (
         <div className="space-y-6">
           {drafts.map((draft) => {
-            // --- UPDATED THIS LOGIC BLOCK ---
             let playerNames = "No players";
             const names = draft.players.map((p) => p.name);
 
@@ -186,7 +169,6 @@ export default function DraftHistory() {
               const lastName = names[names.length - 1];
               playerNames = `${allButLast}, and ${lastName}`;
             }
-            // --- END OF UPDATED LOGIC BLOCK ---
 
             return (
               <div
@@ -198,26 +180,20 @@ export default function DraftHistory() {
                   className="w-full flex justify-between items-center text-left"
                 >
                   <div className="flex items-center gap-4 min-w-0">
-                    {" "}
-                    {/* Added min-w-0 */}
-                    {/* Show yellow dot if restock is needed */}
-                    {(!draft.restockComplete && !inventoryLoading && (
+                    {draft.type === 'chaos' && !draft.restockComplete && !inventoryLoading && (
                       <div
                         className="w-3 h-3 bg-yellow-400 rounded-full flex-shrink-0"
                         title="Restock Needed"
                       ></div>
-                    ))}
-                    {/* --- H3 IS UPDATED --- */}
+                    )}
                     <h3 className="text-xl font-bold text-blue-400 truncate">
-                      Draft on{" "}
-                      {draft.completedAt?.toDate().toLocaleDateString() ||
+                      {draft.type.charAt(0).toUpperCase() + draft.type.slice(1)} Draft on{" "}
+                      {draft.createdAt?.toDate().toLocaleDateString() ||
                         "Unknown Date"}{" "}
                       with {playerNames}
                     </h3>
                   </div>
                   <div className="flex items-center gap-4 flex-shrink-0">
-                    {" "}
-                    {/* Added flex-shrink-0 */}
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       className={`h-6 w-6 text-gray-400 transition-transform duration-300 ${
@@ -239,37 +215,46 @@ export default function DraftHistory() {
 
                 {expandedDraftId === draft.id && (
                   <div className="mt-6 pt-6 border-t border-gray-700 animate-in fade-in duration-500">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {draft.players.map((player) => (
-                        <div
-                          key={player.id}
-                          className="bg-gray-900/50 p-4 rounded-xl"
-                        >
-                          <h4 className="text-lg font-semibold mb-3 text-white">
+                    <div className="mb-4">
+                      <span className="text-sm text-gray-400 uppercase tracking-wide font-semibold">
+                        Players
+                      </span>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {draft.players.map((player) => (
+                          <span
+                            key={player.id}
+                            className="bg-gray-700 text-gray-200 px-3 py-1 rounded-full text-sm"
+                          >
                             {player.name}
-                          </h4>
-                          <div className="flex flex-wrap gap-3">
-                            {player.packs.map((pack) => (
-                              // --- WRAPPED IMAGE IN BUTTON ---
-                              <button
-                                key={pack.id}
-                                onClick={() => setSelectedPack(pack)}
-                                className="focus:outline-none focus:ring-2 focus:ring-blue-400 rounded-md"
-                              >
-                                <img
-                                  src={pack.imageUrl}
-                                  alt={pack.name}
-                                  title={pack.name}
-                                  className="w-20 h-28 rounded-md object-cover border-2 border-gray-600 transition-all hover:border-blue-400"
-                                />
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
+                          </span>
+                        ))}
+                      </div>
                     </div>
 
-                    {/* Show restock alert or delete button */}
+                    {draft.type === 'chaos' && draft.packsSelectedOrder && (
+                      <div className="mb-4">
+                        <span className="text-sm text-gray-400 uppercase tracking-wide font-semibold">
+                          Packs Drafted
+                        </span>
+                        <div className="mt-2 flex flex-wrap gap-3">
+                          {draft.packsSelectedOrder.map((pack, idx) => (
+                            <button
+                              key={`${pack.id}-${idx}`}
+                              onClick={() => setSelectedPack(pack)}
+                              className="focus:outline-none focus:ring-2 focus:ring-blue-400 rounded-md"
+                            >
+                              <img
+                                src={pack.imageUrl}
+                                alt={pack.name}
+                                title={pack.name}
+                                className="w-20 h-28 rounded-md object-cover border-2 border-gray-600 transition-all hover:border-blue-400"
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {!inventoryLoading && <RestockAlert draft={draft} />}
 
                     <div className="mt-6 pt-6 border-t border-gray-700/50 text-right">
@@ -277,7 +262,7 @@ export default function DraftHistory() {
                         onClick={() => handleDelete(draft)}
                         className="bg-red-700 hover:bg-red-800 text-white px-5 py-3 rounded-lg font-semibold disabled:bg-gray-600 transition-colors"
                       >
-                        Delete Draft & Revert Inventory
+                        Delete Draft{draft.type === 'chaos' ? ' & Revert Inventory' : ''}
                       </button>
                     </div>
                   </div>
@@ -288,7 +273,6 @@ export default function DraftHistory() {
         </div>
       )}
 
-      {/* --- ADDED THIS ENTIRE MODAL --- */}
       {selectedPack && (
         <div
           className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center animate-in fade-in duration-300"
@@ -296,7 +280,7 @@ export default function DraftHistory() {
         >
           <div
             className="relative bg-gray-800 rounded-2xl p-8 shadow-2xl border-2 border-gray-700 max-w-md animate-in slide-in-from-bottom-4 duration-500"
-            onClick={(e) => e.stopPropagation()} // Prevent modal from closing when clicking inside
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex flex-col items-center gap-6">
               <div className="w-64 h-80 rounded-lg overflow-hidden shadow-2xl ring-4 ring-blue-400 ring-offset-4 ring-offset-gray-900">
