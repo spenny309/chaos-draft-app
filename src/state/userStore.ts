@@ -70,14 +70,19 @@ export const useUserStore = create<UserStore>((set, get) => ({
 
   loadAllUsers: async () => {
     set({ isLoading: true });
-    const snap = await getDocs(collection(db, 'users'));
-    const users = snap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
-    users.sort((a, b) => {
-      if (a.status === 'pending' && b.status !== 'pending') return -1;
-      if (b.status === 'pending' && a.status !== 'pending') return 1;
-      return a.name.localeCompare(b.name);
-    });
-    set({ allUsers: users, isLoading: false });
+    try {
+      const snap = await getDocs(collection(db, 'users'));
+      const users = snap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
+      users.sort((a, b) => {
+        if (a.status === 'pending' && b.status !== 'pending') return -1;
+        if (b.status === 'pending' && a.status !== 'pending') return 1;
+        return a.name.localeCompare(b.name);
+      });
+      set({ allUsers: users, isLoading: false });
+    } catch (err) {
+      console.error('Failed to load users:', err);
+      set({ isLoading: false });
+    }
   },
 
   updateUserStatus: async (uid, status) => {
