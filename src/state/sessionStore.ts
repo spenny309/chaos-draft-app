@@ -2,10 +2,13 @@ import { create } from "zustand";
 import { useInventoryStore } from "./inventoryStore";
 // ✅ CHANGED: Import the new Pack type from your Firebase inventoryStore
 import { type Pack } from "./inventoryStore";
+import { auth } from '../firebase';
+import { useDraftHistoryStore } from './draftHistoryStore';
 
 export interface Player {
   id: string;
   name: string;
+  userId: string | null;    // linked registered user, null for guests
   selectedPacks: Pack[]; // This now correctly uses the Firebase Pack type
 }
 
@@ -20,6 +23,7 @@ export interface SessionState {
   initializeSession: (
     numPlayers: number,
     playerNames: string[],
+    playerUserIds?: (string | null)[],
     numPacks?: number
   ) => void;
   selectPackForNextPlayer: (pack: Pack) => void;
@@ -37,7 +41,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   confirmed: false,
 
   // This function works as-is because it fetches from the (now Firebase-backed) inventoryStore
-  initializeSession: (numPlayers, playerNames, numPacks) => {
+  initializeSession: (numPlayers, playerNames, playerUserIds = [], numPacks) => {
     const { packs: inventory } = useInventoryStore.getState();
     const players: Player[] = [];
 
@@ -45,6 +49,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       players.push({
         id: `player-${i + 1}`,
         name: playerNames[i] || `Player ${i + 1}`,
+        userId: playerUserIds[i] ?? null,
         selectedPacks: [],
       });
     }
@@ -97,21 +102,38 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     });
   },
 
-  // This function works as-is, calling the correct action in the Firebase store.
   confirmSession: async () => {
-    const { packsSelectedOrder } = get();
+    const { packsSelectedOrder, players, sessionId } = get();
     const { confirmSessionPicks } = useInventoryStore.getState();
+    const { saveDraft } = useDraftHistoryStore.getState();
+    const uid = auth.currentUser?.uid;
 
-    if (packsSelectedOrder.length === 0) {
-      console.log("No packs selected, nothing to confirm.");
-      return;
-    }
+    if (packsSelectedOrder.length === 0 || !uid) return;
 
     try {
       await confirmSessionPicks(packsSelectedOrder);
+
+      await saveDraft({
+        type: 'chaos',
+        createdBy: uid,
+        status: 'finalized',
+        sessionId,
+        players: players.map(p => ({
+          id: p.id,
+          name: p.name,
+          userId: p.userId,
+        })),
+        packsSelectedOrder: packsSelectedOrder.map(p => ({
+          id: p.id,
+          name: p.name,
+          imageUrl: p.imageUrl,
+        })),
+        restockComplete: false,
+      });
+
       set({ confirmed: true });
     } catch (error) {
-      console.error("Failed to confirm session in store:", error);
+      console.error('Failed to confirm session:', error);
     }
   },
 
