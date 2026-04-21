@@ -61,6 +61,8 @@ export function allocateFromPool(
 /**
  * Distributes totalPacks across numSets using the largest-remainder method,
  * guaranteeing the counts sum to exactly totalPacks.
+ * @param totalPacks Must be >= 0. Negative values produce undefined behaviour.
+ * @param numSets Number of sets to distribute across.
  */
 export function distributePacksAcrossSets(
   totalPacks: number,
