@@ -66,6 +66,7 @@ export default function Inventory() {
 
     setIsAdding(true);
     await addPack({
+      catalogId: '',
       name: newPackName,
       imageUrl:
         newPackImageUrl ||
@@ -176,6 +177,7 @@ export default function Inventory() {
           const importPromises = Array.from(mergedPacks.values()).map(
             (pack) =>
               addPack({
+                catalogId: '',
                 name: pack.name,
                 imageUrl: pack.imageUrl,
                 inPerson: pack.inPerson,
