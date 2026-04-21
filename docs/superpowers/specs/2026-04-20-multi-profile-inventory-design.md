@@ -197,11 +197,12 @@ Identical to current flow (setup → spinning wheel → confirm). Changes:
 - Packs per person (auto-defaults: Regular Draft / Team Sealed → 3, Mobius / Sealed → 6; editable)
 
 **Step 2 — Preview**
-- Runs pack allocation algorithm (see below)
-- Displays computed allocation: which packs from whose inventory, how many
+- Runs pack allocation algorithm (see below) to produce a default allocation
+- Displays computed allocation: which packs from whose inventory, how many — each contributor's count is an editable field
+- Users may manually override any contributor's count; the UI validates in real time that the total across all contributors still equals `totalNeeded` for each set (counts must be ≥ 0 and ≤ the contributor's available inventory)
 - If per-set pack count required rounding, shows a warning explaining the distribution (e.g. "3 packs of Set A, 2 packs of Set B")
 - Shows shortage warning per set if Draft Inventory can't cover the full need
-- Any approved user can save a preview (saved with `status: "preview"`, no inventory changes)
+- Any approved user can save a preview (saved with `status: "preview"`, no inventory changes); the saved `allocation` reflects the manually-adjusted values, not necessarily the algorithm defaults
 - Preview drafts appear in History for all users to see
 
 **Step 3 — Finalize** (admin only)
