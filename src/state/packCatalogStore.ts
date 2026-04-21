@@ -4,7 +4,6 @@ import {
   getDocs,
   addDoc,
   doc,
-  updateDoc,
   deleteDoc,
   query,
   where,
@@ -50,74 +49,78 @@ export const usePackCatalogStore = create<PackCatalogStore>((set, get) => ({
   },
 
   editEntry: async (id, updates) => {
-    const batch = writeBatch(db);
+    try {
+      const batch = writeBatch(db);
 
-    // Update catalog entry itself
-    batch.update(doc(db, 'packCatalog', id), updates);
+      // Update catalog entry itself
+      batch.update(doc(db, 'packCatalog', id), updates);
 
-    // Update chaos inventory packs referencing this catalogId
-    const packsSnap = await getDocs(
-      query(collection(db, 'packs'), where('catalogId', '==', id))
-    );
-    packsSnap.docs.forEach(d => batch.update(d.ref, updates));
+      // Update chaos inventory packs referencing this catalogId
+      const packsSnap = await getDocs(
+        query(collection(db, 'packs'), where('catalogId', '==', id))
+      );
+      packsSnap.docs.forEach(d => batch.update(d.ref, updates));
 
-    // Update private inventory items referencing this catalogId
-    const privSnap = await getDocs(
-      query(collection(db, 'privateInventory'), where('catalogId', '==', id))
-    );
-    privSnap.docs.forEach(d => batch.update(d.ref, updates));
+      // Update private inventory items referencing this catalogId
+      const privSnap = await getDocs(
+        query(collection(db, 'privateInventory'), where('catalogId', '==', id))
+      );
+      privSnap.docs.forEach(d => batch.update(d.ref, updates));
 
-    await batch.commit();
+      await batch.commit();
 
-    // Update draft documents (no array-contains for nested objects — read all and filter)
-    const currentEntry = get().entries.find(e => e.id === id);
-    const currentName = currentEntry?.name ?? '';
-    const draftsSnap = await getDocs(collection(db, 'drafts'));
-    const batch2 = writeBatch(db);
-    let hasChanges = false;
+      // Update draft documents (no array-contains for nested objects — read all and filter)
+      const currentEntry = get().entries.find(e => e.id === id);
+      if (!currentEntry) throw new Error(`Pack catalog entry ${id} not found in local state — call loadEntries() first`);
+      const currentName = currentEntry.name;
+      const draftsSnap = await getDocs(collection(db, 'drafts'));
+      const batch2 = writeBatch(db);
+      let hasChanges = false;
 
-    draftsSnap.docs.forEach(d => {
-      const data = d.data();
-      const updateData: Record<string, unknown> = {};
+      draftsSnap.docs.forEach(d => {
+        const data = d.data();
+        const updateData: Record<string, unknown> = {};
 
-      // Chaos drafts: packsSelectedOrder matched by name (no catalogId in those entries)
-      if (Array.isArray(data.packsSelectedOrder)) {
-        const updated = data.packsSelectedOrder.map((p: Record<string, unknown>) =>
-          p.name === currentName ? { ...p, ...updates } : p
-        );
-        if (JSON.stringify(updated) !== JSON.stringify(data.packsSelectedOrder)) {
-          updateData.packsSelectedOrder = updated;
+        // Chaos drafts: packsSelectedOrder matched by name (no catalogId in those entries)
+        if (Array.isArray(data.packsSelectedOrder)) {
+          const updated = data.packsSelectedOrder.map((p: Record<string, unknown>) =>
+            p.name === currentName ? { ...p, ...updates } : p
+          );
+          if (JSON.stringify(updated) !== JSON.stringify(data.packsSelectedOrder)) {
+            updateData.packsSelectedOrder = updated;
+          }
         }
-      }
 
-      // Regular drafts: sets array matched by catalogId
-      if (Array.isArray(data.sets)) {
-        const updated = data.sets.map((s: Record<string, unknown>) =>
-          s.catalogId === id ? { ...s, ...updates } : s
-        );
-        if (JSON.stringify(updated) !== JSON.stringify(data.sets)) {
-          updateData.sets = updated;
+        // Regular drafts: sets array matched by catalogId
+        if (Array.isArray(data.sets)) {
+          const updated = data.sets.map((s: Record<string, unknown>) =>
+            s.catalogId === id ? { ...s, ...updates } : s
+          );
+          if (JSON.stringify(updated) !== JSON.stringify(data.sets)) {
+            updateData.sets = updated;
+          }
         }
-      }
 
-      // Regular drafts: allocation array matched by catalogId
-      if (Array.isArray(data.allocation)) {
-        const updated = data.allocation.map((a: Record<string, unknown>) =>
-          a.catalogId === id ? { ...a, ...updates } : a
-        );
-        if (JSON.stringify(updated) !== JSON.stringify(data.allocation)) {
-          updateData.allocation = updated;
+        // Regular drafts: allocation array matched by catalogId
+        if (Array.isArray(data.allocation)) {
+          const updated = data.allocation.map((a: Record<string, unknown>) =>
+            a.catalogId === id ? { ...a, ...updates } : a
+          );
+          if (JSON.stringify(updated) !== JSON.stringify(data.allocation)) {
+            updateData.allocation = updated;
+          }
         }
-      }
 
-      if (Object.keys(updateData).length > 0) {
-        batch2.update(d.ref, updateData);
-        hasChanges = true;
-      }
-    });
+        if (Object.keys(updateData).length > 0) {
+          batch2.update(d.ref, updateData);
+          hasChanges = true;
+        }
+      });
 
-    if (hasChanges) await batch2.commit();
-    await get().loadEntries();
+      if (hasChanges) await batch2.commit();
+    } finally {
+      await get().loadEntries();
+    }
   },
 
   deleteEntry: async (id) => {
