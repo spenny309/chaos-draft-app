@@ -71,6 +71,16 @@ export const useRegularDraftStore = create<RegularDraftStore>((set) => ({
       config.players.map(p => p.userId).filter(Boolean) as string[]
     );
 
+    // Build a name map: userId -> name
+    // Players provide names for participants; for non-participants we won't have a name here
+    // so we'll need the allUsers context — but since we only have allPrivateInventory,
+    // use player names for participants and userId as fallback for non-participants
+    const playerNameMap = new Map(
+      config.players
+        .filter(p => p.userId !== null)
+        .map(p => [p.userId as string, p.name])
+    );
+
     const allocations: SetAllocationWithMeta[] = config.sets.map((catalogEntry, i) => {
       const totalNeeded = counts[i];
       const itemsForSet = allPrivateInventory.filter(
@@ -79,7 +89,7 @@ export const useRegularDraftStore = create<RegularDraftStore>((set) => ({
 
       const toContributor = (item: PrivateInventoryItem) => ({
         userId: item.ownerId,
-        userName: '', // filled below
+        userName: playerNameMap.get(item.ownerId) ?? item.ownerId,
         available: item.count,
       });
 
