@@ -1,12 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { auth } from '../firebase';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
-  onAuthStateChanged,
 } from 'firebase/auth';
-import type { User } from 'firebase/auth';
 import { useUserStore } from '../state/userStore';
 
 export default function Auth() {
@@ -14,20 +12,11 @@ export default function Auth() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const { createProfile } = useUserStore();
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
+  const currentUser = auth.currentUser;
 
   const handleLogIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,10 +53,8 @@ export default function Auth() {
     await signOut(auth);
   };
 
-  if (loading) return null;
-
   // Logged-in state: just a logout button (shown in header)
-  if (user) {
+  if (currentUser) {
     return (
       <div className="flex justify-end">
         <button
