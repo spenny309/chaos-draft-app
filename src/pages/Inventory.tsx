@@ -107,7 +107,7 @@ function ChaosInventory() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPackName.trim() || isAdding || !auth.currentUser) return;
+    if (!newPackName.trim() || isAdding || !auth.currentUser || !selectedCatalogEntry) return;
     const inPerson = Math.max(0, Number(newPackInPerson) || 0);
     const inTransit = Math.max(0, Number(newPackInTransit) || 0);
 
@@ -118,7 +118,7 @@ function ChaosInventory() {
 
     setIsAdding(true);
     await addPack({
-      catalogId: selectedCatalogEntry?.id ?? '',
+      catalogId: selectedCatalogEntry.id,
       name: newPackName,
       imageUrl:
         newPackImageUrl ||
