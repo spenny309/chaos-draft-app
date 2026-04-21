@@ -1,11 +1,62 @@
 import { useState, useMemo } from "react";
 // Assuming state is in src/state
 import { useInventoryStore } from "../state/inventoryStore";
+import { useUserStore } from "../state/userStore";
 import { auth } from "../firebase";
 import Papa from "papaparse";
 import { exportInventoryToCSV } from "../utils/exportInventory";
+import PackCatalogSearch from "../components/PackCatalogSearch";
+import type { PackCatalogEntry } from "../types";
+import PrivateInventory from "./PrivateInventory";
+import DraftInventory from "./DraftInventory";
 
 export default function Inventory() {
+  const { profile } = useUserStore();
+  const isAdmin = profile?.role === 'admin';
+  const [inventoryTab, setInventoryTab] = useState<'chaos' | 'draft' | 'private'>(
+    isAdmin ? 'chaos' : 'private'
+  );
+
+  return (
+    <div className="space-y-6 max-w-6xl mx-auto">
+      {/* Inventory type selector */}
+      <div className="flex gap-2 border-b border-gray-700 pb-4">
+        {isAdmin && (
+          <button
+            onClick={() => setInventoryTab('chaos')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              inventoryTab === 'chaos' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            Chaos Inventory
+          </button>
+        )}
+        <button
+          onClick={() => setInventoryTab('draft')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            inventoryTab === 'draft' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700'
+          }`}
+        >
+          Draft Inventory
+        </button>
+        <button
+          onClick={() => setInventoryTab('private')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            inventoryTab === 'private' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700'
+          }`}
+        >
+          Private Inventory
+        </button>
+      </div>
+
+      {inventoryTab === 'draft' && <DraftInventory />}
+      {inventoryTab === 'private' && <PrivateInventory />}
+      {inventoryTab === 'chaos' && isAdmin && <ChaosInventory />}
+    </div>
+  );
+}
+
+function ChaosInventory() {
   const { packs, loading, addPack, updatePack, deletePack, clearAll } =
     useInventoryStore();
 
@@ -13,6 +64,7 @@ export default function Inventory() {
   const [newPackImageUrl, setNewPackImageUrl] = useState("");
   const [newPackInPerson, setNewPackInPerson] = useState("");
   const [newPackInTransit, setNewPackInTransit] = useState("");
+  const [selectedCatalogEntry, setSelectedCatalogEntry] = useState<PackCatalogEntry | null>(null);
 
   const [isAdding, setIsAdding] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -66,7 +118,7 @@ export default function Inventory() {
 
     setIsAdding(true);
     await addPack({
-      catalogId: '',
+      catalogId: selectedCatalogEntry?.id ?? '',
       name: newPackName,
       imageUrl:
         newPackImageUrl ||
@@ -79,6 +131,7 @@ export default function Inventory() {
     setNewPackImageUrl("");
     setNewPackInPerson("");
     setNewPackInTransit("");
+    setSelectedCatalogEntry(null);
     setIsAdding(false);
   };
 
@@ -210,7 +263,7 @@ export default function Inventory() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8">
+    <div className="space-y-8">
       <h2 className="text-3xl font-bold text-white">📦 Inventory</h2>
 
       {/* --- Inventory Stats --- */}
@@ -245,27 +298,23 @@ export default function Inventory() {
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-300 mb-1">
-              Pack Name
+              Pack
             </label>
-            <input
-              type="text"
-              className="mt-1 block w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={newPackName}
-              onChange={(e) => setNewPackName(e.target.value)}
-              placeholder="e.g., Modern Horizons 3"
+            <PackCatalogSearch
+              onSelect={entry => {
+                setSelectedCatalogEntry(entry);
+                setNewPackName(entry.name);
+                setNewPackImageUrl(entry.imageUrl);
+              }}
+              clearOnSelect={false}
+              placeholder="Search pack catalog to add…"
             />
-          </div>
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-300 mb-1">
-              Image URL
-            </label>
-            <input
-              type="text"
-              className="mt-1 block w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={newPackImageUrl}
-              onChange={(e) => setNewPackImageUrl(e.target.value)}
-              placeholder="https://... image.png"
-            />
+            {selectedCatalogEntry && (
+              <div className="flex items-center gap-2 text-sm text-gray-300 mt-2">
+                <img src={selectedCatalogEntry.imageUrl} className="w-6 h-8 object-cover rounded" alt={selectedCatalogEntry.name} />
+                {selectedCatalogEntry.name}
+              </div>
+            )}
           </div>
           <div className="w-full md:w-24">
             <label className="block text-sm font-medium text-gray-300 mb-1">
