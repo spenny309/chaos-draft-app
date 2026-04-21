@@ -295,7 +295,7 @@ function PackCatalogManagement() {
                   className="px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
                 <div className="flex gap-2">
-                  <button onClick={() => handleEdit(entry.id)} disabled={saving} className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded font-medium">Save</button>
+                  <button onClick={() => handleEdit(entry.id)} disabled={saving || !editName.trim() || !editImageUrl.trim()} className="px-3 py-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs rounded font-medium">Save</button>
                   <button onClick={() => setEditId(null)} className="px-3 py-1 bg-gray-600 hover:bg-gray-500 text-white text-xs rounded font-medium">Cancel</button>
                 </div>
               </div>
