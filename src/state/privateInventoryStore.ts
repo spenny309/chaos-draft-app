@@ -64,28 +64,31 @@ export const usePrivateInventoryStore = create<PrivateInventoryStore>((set, get)
   addOrUpdateItem: async (catalogId, name, imageUrl, count) => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
-    const snap = await getDocs(
-      query(
-        collection(db, 'privateInventory'),
-        where('ownerId', '==', uid),
-        where('catalogId', '==', catalogId)
-      )
-    );
-    if (!snap.empty) {
-      const existing = snap.docs[0];
-      await updateDoc(doc(db, 'privateInventory', existing.id), {
-        count: (existing.data().count as number) + count,
-      });
-    } else {
-      await addDoc(collection(db, 'privateInventory'), {
-        ownerId: uid,
-        catalogId,
-        name,
-        imageUrl,
-        count,
-      });
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, 'privateInventory'),
+          where('ownerId', '==', uid),
+          where('catalogId', '==', catalogId)
+        )
+      );
+      if (!snap.empty) {
+        const existing = snap.docs[0];
+        await updateDoc(doc(db, 'privateInventory', existing.id), {
+          count: (existing.data().count as number) + count,
+        });
+      } else {
+        await addDoc(collection(db, 'privateInventory'), {
+          ownerId: uid,
+          catalogId,
+          name,
+          imageUrl,
+          count,
+        });
+      }
+    } finally {
+      await get().loadMyInventory();
     }
-    await get().loadMyInventory();
   },
 
   updateCount: async (id, count) => {
@@ -113,24 +116,32 @@ export const usePrivateInventoryStore = create<PrivateInventoryStore>((set, get)
       }
     }
 
+    // Resolve document references BEFORE entering the transaction
+    const docRefs: { ref: ReturnType<typeof doc>; count: number }[] = [];
+    for (const { userId, catalogId, count } of deductions.values()) {
+      const snap = await getDocs(
+        query(
+          collection(db, 'privateInventory'),
+          where('ownerId', '==', userId),
+          where('catalogId', '==', catalogId)
+        )
+      );
+      if (!snap.empty) {
+        docRefs.push({ ref: snap.docs[0].ref, count });
+      }
+    }
+
     await runTransaction(db, async (transaction) => {
-      // READS FIRST
+      // Reads first (using transaction.get for conflict detection)
       const updates: { ref: ReturnType<typeof doc>; newCount: number }[] = [];
-      for (const { userId, catalogId, count } of deductions.values()) {
-        const snap = await getDocs(
-          query(
-            collection(db, 'privateInventory'),
-            where('ownerId', '==', userId),
-            where('catalogId', '==', catalogId)
-          )
-        );
-        if (!snap.empty) {
-          const itemDoc = snap.docs[0];
-          const current = itemDoc.data().count as number;
-          updates.push({ ref: itemDoc.ref, newCount: Math.max(0, current - count) });
+      for (const { ref, count } of docRefs) {
+        const snap = await transaction.get(ref);
+        if (snap.exists()) {
+          const current = snap.data().count as number;
+          updates.push({ ref, newCount: Math.max(0, current - count) });
         }
       }
-      // WRITES SECOND
+      // Writes second
       for (const { ref, newCount } of updates) {
         transaction.update(ref, { count: newCount });
       }
