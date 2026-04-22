@@ -73,6 +73,7 @@ export default function RegularDraftPreview({
   }, [allItems.length, allUsers.length]);
 
   const handleCountChange = (catalogId: string, userId: string, rawValue: string) => {
+    setValidationErrors(new Map()); // clear stale errors on any edit
     const value = Math.max(0, parseInt(rawValue) || 0);
     setOverrides(prev => {
       const next = new Map(prev);
