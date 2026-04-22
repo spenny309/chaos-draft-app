@@ -1,23 +1,43 @@
 import { useState, useMemo } from "react";
 import { useDraftHistoryStore } from "../state/draftHistoryStore";
 import { useInventoryStore } from "../state/inventoryStore";
+import { useUserStore } from "../state/userStore";
+import { useRegularDraftStore } from "../state/regularDraftStore";
+import { usePrivateInventoryStore } from "../state/privateInventoryStore";
 import type { Draft, DraftPackRef } from "../types";
 
+const typeBadgeColors: Record<string, string> = {
+  chaos: 'bg-purple-700 text-purple-200',
+  regular: 'bg-blue-700 text-blue-200',
+  mobius: 'bg-green-700 text-green-200',
+  sealed: 'bg-yellow-700 text-yellow-200',
+  'team-sealed': 'bg-orange-700 text-orange-200',
+};
+
 export default function DraftHistory() {
-  const { drafts, loading, error, deleteDraft, markRestockComplete } =
+  const { drafts, loading, error, deleteDraft, markRestockComplete, loadDrafts } =
     useDraftHistoryStore();
 
   const { packs: inventoryPacks, loading: inventoryLoading } =
     useInventoryStore();
 
-  const [expandedDraftId, setExpandedDraftId] = useState<string | null>(null);
+  const { profile } = useUserStore();
+  const { finalizeDraft } = useRegularDraftStore();
+  const { batchDeduct } = usePrivateInventoryStore();
 
+  const [expandedDraftId, setExpandedDraftId] = useState<string | null>(null);
   const [selectedPack, setSelectedPack] = useState<DraftPackRef | null>(null);
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [finalizing, setFinalizing] = useState<string | null>(null);
 
   const inventoryMap = useMemo(() => {
     if (inventoryLoading) return new Map<string, number>();
     return new Map(inventoryPacks.map((p) => [p.id, p.inPerson]));
   }, [inventoryPacks, inventoryLoading]);
+
+  const filtered = typeFilter === 'all'
+    ? drafts
+    : drafts.filter(d => d.type === typeFilter);
 
   const toggleExpand = (draftId: string) => {
     setExpandedDraftId((prevId) => (prevId === draftId ? null : draftId));
@@ -34,6 +54,18 @@ export default function DraftHistory() {
       return;
     }
     deleteDraft(draft.id);
+  };
+
+  const handleFinalize = async (draft: Draft) => {
+    if (!draft.allocation) return;
+    setFinalizing(draft.id);
+    try {
+      await batchDeduct(draft.allocation);
+      await finalizeDraft(draft.id, draft.allocation);
+      await loadDrafts();
+    } finally {
+      setFinalizing(null);
+    }
   };
 
   // This component calculates and renders the restock alert for chaos drafts
@@ -149,14 +181,30 @@ export default function DraftHistory() {
     <div className="max-w-6xl mx-auto space-y-8">
       <h2 className="text-3xl font-bold text-white">📜 Draft History</h2>
 
-      {drafts.length === 0 ? (
+      <div className="flex items-center gap-3 mb-4">
+        <label className="text-gray-400 text-sm">Filter:</label>
+        <select
+          value={typeFilter}
+          onChange={e => setTypeFilter(e.target.value)}
+          className="px-3 py-1.5 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm focus:outline-none"
+        >
+          <option value="all">All Drafts</option>
+          <option value="chaos">Chaos</option>
+          <option value="regular">Regular</option>
+          <option value="mobius">Mobius</option>
+          <option value="sealed">Sealed</option>
+          <option value="team-sealed">Team Sealed</option>
+        </select>
+      </div>
+
+      {filtered.length === 0 ? (
         <div className="text-center text-gray-400 py-10 bg-gray-800 rounded-2xl">
           <h3 className="text-xl font-semibold">No Drafts Found</h3>
           <p>Complete a draft to see its history here.</p>
         </div>
       ) : (
         <div className="space-y-6">
-          {drafts.map((draft) => {
+          {filtered.map((draft) => {
             let playerNames = "No players";
             const names = draft.players.map((p) => p.name);
 
@@ -192,6 +240,12 @@ export default function DraftHistory() {
                         "Unknown Date"}{" "}
                       with {playerNames}
                     </h3>
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 ${typeBadgeColors[draft.type] ?? 'bg-gray-700 text-gray-300'}`}>
+                      {draft.type.charAt(0).toUpperCase() + draft.type.slice(1).replace('-', ' ')}
+                    </span>
+                    {draft.status === 'preview' && (
+                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-yellow-800 text-yellow-200 flex-shrink-0">Preview</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-4 flex-shrink-0">
                     <svg
@@ -255,7 +309,41 @@ export default function DraftHistory() {
                       </div>
                     )}
 
+                    {draft.type !== 'chaos' && draft.sets && (
+                      <div className="space-y-2 mb-4">
+                        <p className="text-gray-400 text-sm font-medium">Sets:</p>
+                        {draft.sets.map(s => (
+                          <div key={s.catalogId} className="flex items-center gap-2 text-sm text-gray-300">
+                            <img src={s.imageUrl} alt={s.name} className="w-5 h-6 object-cover rounded" />
+                            <span>{s.name}</span>
+                            <span className="text-gray-500">({s.totalNeeded} packs)</span>
+                          </div>
+                        ))}
+                        {draft.allocation && draft.allocation.length > 0 && (
+                          <div className="mt-3">
+                            <p className="text-gray-400 text-sm font-medium mb-1">Allocation:</p>
+                            {draft.allocation.map((a, i) => (
+                              <div key={i} className="flex justify-between text-xs text-gray-300">
+                                <span>{a.userName} — {a.name}</span>
+                                <span className="font-semibold">{a.count}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {!inventoryLoading && <RestockAlert draft={draft} />}
+
+                    {profile?.role === 'admin' && draft.status === 'preview' && draft.type !== 'chaos' && (
+                      <button
+                        onClick={() => handleFinalize(draft)}
+                        disabled={finalizing === draft.id}
+                        className="mt-3 w-full py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm font-bold rounded-lg"
+                      >
+                        {finalizing === draft.id ? 'Finalizing…' : 'Finalize Draft'}
+                      </button>
+                    )}
 
                     <div className="mt-6 pt-6 border-t border-gray-700/50 text-right">
                       <button
