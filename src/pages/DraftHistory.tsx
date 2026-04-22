@@ -14,6 +14,143 @@ const typeBadgeColors: Record<string, string> = {
   'team-sealed': 'bg-orange-700 text-orange-200',
 };
 
+const typeBadgeLabels: Record<string, string> = {
+  chaos: 'Chaos',
+  regular: 'Regular',
+  mobius: 'Mobius',
+  sealed: 'Sealed',
+  'team-sealed': 'Team Sealed',
+};
+
+interface RestockAlertProps {
+  draft: Draft;
+  inventoryMap: Map<string, number>;
+  inventoryLoading: boolean;
+  markRestockComplete: (id: string) => Promise<void>;
+}
+
+function RestockAlert({ draft, inventoryMap, inventoryLoading, markRestockComplete }: RestockAlertProps) {
+  const [selectedPack, setSelectedPack] = useState<DraftPackRef | null>(null);
+
+  const packsToRestock = useMemo(() => {
+    if (draft.restockComplete || inventoryLoading) return [];
+    if (draft.type !== 'chaos' || !draft.packsSelectedOrder) return [];
+
+    const uniquePacks: Map<string, DraftPackRef> = new Map();
+
+    for (const pack of draft.packsSelectedOrder) {
+      const inventoryCount = inventoryMap.get(pack.id) || 0;
+      if (inventoryCount > 0) {
+        uniquePacks.set(pack.id, pack);
+      }
+    }
+
+    const packArray = Array.from(uniquePacks.values());
+    packArray.sort((a, b) => a.name.localeCompare(b.name));
+    return packArray;
+  }, [draft, inventoryMap, inventoryLoading]);
+
+  if (draft.type !== 'chaos') return null;
+
+  if (draft.restockComplete) {
+    return (
+      <div className="mt-6 pt-6 border-t border-gray-700/50">
+        <div className="p-4 rounded-lg bg-green-800/50 border border-green-600 text-center">
+          <span className="font-semibold text-green-300">
+            ✅ Restock Complete
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (packsToRestock.length === 0 && !inventoryLoading) {
+    return (
+      <div className="mt-6 pt-6 border-t border-gray-700/50">
+        <div className="p-4 rounded-lg bg-gray-700/50 text-center">
+          <span className="font-semibold text-gray-400">
+            No Restock Needed
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (packsToRestock.length > 0) {
+    return (
+      <div className="mt-6 pt-6 border-t border-gray-700/50 space-y-4">
+        <div className="p-6 rounded-2xl bg-yellow-900/40 border-2 border-yellow-600/70">
+          <h4 className="text-xl font-bold text-yellow-300 mb-4">
+            ⚠️ Physical Pool Restock Needed
+          </h4>
+          <p className="text-yellow-200/80 mb-5">
+            You drafted the following packs and have more in your inventory.
+            Please add one of each to your physical draft box.
+          </p>
+          <div className="flex flex-wrap gap-4 mb-6">
+            {packsToRestock.map((pack) => (
+              <div key={pack.id} className="flex flex-col items-center gap-2">
+                <button
+                  onClick={() => setSelectedPack(pack)}
+                  className="focus:outline-none focus:ring-2 focus:ring-yellow-400 rounded-md"
+                >
+                  <img
+                    src={pack.imageUrl}
+                    alt={pack.name}
+                    title={pack.name}
+                    className="w-20 h-28 rounded-md object-cover border-2 border-yellow-600"
+                  />
+                </button>
+                <span className="text-xs text-yellow-200/90 w-20 text-center truncate">
+                  {pack.name}
+                </span>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={() => markRestockComplete(draft.id)}
+            className="w-full py-3 px-5 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg"
+          >
+            Mark Restock as Complete
+          </button>
+        </div>
+        {selectedPack && (
+          <div
+            className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center animate-in fade-in duration-300"
+            onClick={() => setSelectedPack(null)}
+          >
+            <div
+              className="relative bg-gray-800 rounded-2xl p-8 shadow-2xl border-2 border-gray-700 max-w-md animate-in slide-in-from-bottom-4 duration-500"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex flex-col items-center gap-6">
+                <div className="w-64 h-80 rounded-lg overflow-hidden shadow-2xl ring-4 ring-blue-400 ring-offset-4 ring-offset-gray-900">
+                  <img
+                    src={selectedPack.imageUrl}
+                    alt={selectedPack.name}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <h3 className="text-2xl font-bold text-blue-300 text-center">
+                  {selectedPack.name}
+                </h3>
+                <button
+                  onClick={() => setSelectedPack(null)}
+                  className="mt-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-3 rounded-lg shadow-lg transition-all hover:scale-105"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+}
+
 export default function DraftHistory() {
   const { drafts, loading, error, deleteDraft, markRestockComplete, loadDrafts } =
     useDraftHistoryStore();
@@ -66,97 +203,6 @@ export default function DraftHistory() {
     } finally {
       setFinalizing(null);
     }
-  };
-
-  // This component calculates and renders the restock alert for chaos drafts
-  const RestockAlert = ({ draft }: { draft: Draft }) => {
-    const packsToRestock = useMemo(() => {
-      if (draft.restockComplete || inventoryLoading) return [];
-      if (draft.type !== 'chaos' || !draft.packsSelectedOrder) return [];
-
-      const uniquePacks: Map<string, DraftPackRef> = new Map();
-
-      for (const pack of draft.packsSelectedOrder) {
-        const inventoryCount = inventoryMap.get(pack.id) || 0;
-        if (inventoryCount > 0) {
-          uniquePacks.set(pack.id, pack);
-        }
-      }
-
-      const packArray = Array.from(uniquePacks.values());
-      packArray.sort((a, b) => a.name.localeCompare(b.name));
-      return packArray;
-    }, [draft, inventoryMap, inventoryLoading]);
-
-    if (draft.type !== 'chaos') return null;
-
-    if (draft.restockComplete) {
-      return (
-        <div className="mt-6 pt-6 border-t border-gray-700/50">
-          <div className="p-4 rounded-lg bg-green-800/50 border border-green-600 text-center">
-            <span className="font-semibold text-green-300">
-              ✅ Restock Complete
-            </span>
-          </div>
-        </div>
-      );
-    }
-
-    if (packsToRestock.length === 0 && !inventoryLoading) {
-      return (
-        <div className="mt-6 pt-6 border-t border-gray-700/50">
-          <div className="p-4 rounded-lg bg-gray-700/50 text-center">
-            <span className="font-semibold text-gray-400">
-              No Restock Needed
-            </span>
-          </div>
-        </div>
-      );
-    }
-
-    if (packsToRestock.length > 0) {
-      return (
-        <div className="mt-6 pt-6 border-t border-gray-700/50 space-y-4">
-          <div className="p-6 rounded-2xl bg-yellow-900/40 border-2 border-yellow-600/70">
-            <h4 className="text-xl font-bold text-yellow-300 mb-4">
-              ⚠️ Physical Pool Restock Needed
-            </h4>
-            <p className="text-yellow-200/80 mb-5">
-              You drafted the following packs and have more in your inventory.
-              Please add one of each to your physical draft box.
-            </p>
-            <div className="flex flex-wrap gap-4 mb-6">
-              {packsToRestock.map((pack) => (
-                <div key={pack.id} className="flex flex-col items-center gap-2">
-                  <button
-                    onClick={() => setSelectedPack(pack)}
-                    className="focus:outline-none focus:ring-2 focus:ring-yellow-400 rounded-md"
-                  >
-                    <img
-                      src={pack.imageUrl}
-                      alt={pack.name}
-                      title={pack.name}
-                      className="w-20 h-28 rounded-md object-cover border-2 border-yellow-600"
-                    />
-                  </button>
-                  <span className="text-xs text-yellow-200/90 w-20 text-center truncate">
-                    {pack.name}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <button
-              onClick={() => markRestockComplete(draft.id)}
-              className="w-full py-3 px-5 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg"
-            >
-              Mark Restock as Complete
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    return null;
   };
 
   if (loading) {
@@ -241,7 +287,7 @@ export default function DraftHistory() {
                       with {playerNames}
                     </h3>
                     <span className={`px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 ${typeBadgeColors[draft.type] ?? 'bg-gray-700 text-gray-300'}`}>
-                      {draft.type.charAt(0).toUpperCase() + draft.type.slice(1).replace('-', ' ')}
+                      {typeBadgeLabels[draft.type] ?? draft.type}
                     </span>
                     {draft.status === 'preview' && (
                       <span className="px-2 py-0.5 rounded text-xs font-medium bg-yellow-800 text-yellow-200 flex-shrink-0">Preview</span>
@@ -333,7 +379,14 @@ export default function DraftHistory() {
                       </div>
                     )}
 
-                    {!inventoryLoading && <RestockAlert draft={draft} />}
+                    {!inventoryLoading && (
+                      <RestockAlert
+                        draft={draft}
+                        inventoryMap={inventoryMap}
+                        inventoryLoading={inventoryLoading}
+                        markRestockComplete={markRestockComplete}
+                      />
+                    )}
 
                     {profile?.role === 'admin' && draft.status === 'preview' && draft.type !== 'chaos' && (
                       <button
