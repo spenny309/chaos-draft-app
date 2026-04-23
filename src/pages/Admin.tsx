@@ -1,13 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useUserStore } from '../state/userStore';
 import { usePackCatalogStore } from '../state/packCatalogStore';
-import { db } from '../firebase';
-import {
-  collection,
-  getDocs,
-  doc,
-  writeBatch,
-} from 'firebase/firestore';
 import type { UserProfile } from '../types';
 
 type AdminSection = 'users' | 'catalog';
@@ -108,8 +101,6 @@ function PackCatalogManagement() {
   const [editImageUrl, setEditImageUrl] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleteWarning, setDeleteWarning] = useState<{ id: string; blockedBy: string[] } | null>(null);
-  const [migrationStatus, setMigrationStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
-  const [migrationLog, setMigrationLog] = useState<string[]>([]);
 
   useEffect(() => { loadEntries(); }, []);
 
@@ -136,54 +127,8 @@ function PackCatalogManagement() {
     }
   };
 
-  const runMigration = async () => {
-    setMigrationStatus('running');
-    const log: string[] = [];
-
-    try {
-      // Seed publicProfiles from users (name only — no email exposed)
-      const usersSnap = await getDocs(collection(db, 'users'));
-      const profileBatch = writeBatch(db);
-      for (const userDoc of usersSnap.docs) {
-        const profileRef = doc(db, 'publicProfiles', userDoc.id);
-        profileBatch.set(profileRef, { name: userDoc.data().name }, { merge: true });
-      }
-      await profileBatch.commit();
-      log.push(`Seeded publicProfiles for ${usersSnap.docs.length} user(s).`);
-      log.push('Migration complete.');
-
-      setMigrationLog(log);
-      setMigrationStatus('done');
-      loadEntries();
-    } catch (err) {
-      log.push(`ERROR: ${(err as Error).message}`);
-      setMigrationLog(log);
-      setMigrationStatus('error');
-    }
-  };
-
   return (
     <div className="space-y-6">
-      {/* Migration */}
-      <div className="bg-gray-800 rounded-xl p-5 border border-yellow-700 space-y-3">
-        <h2 className="text-lg font-semibold text-yellow-400">One-Time Migration</h2>
-        <p className="text-gray-300 text-sm">
-          Seeds the publicProfiles collection from existing user accounts (name only, no email). Safe to re-run.
-        </p>
-        <button
-          onClick={runMigration}
-          disabled={migrationStatus === 'running' || migrationStatus === 'done'}
-          className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white text-sm font-bold rounded-lg"
-        >
-          {migrationStatus === 'running' ? 'Running…' : migrationStatus === 'done' ? 'Done' : 'Run Migration'}
-        </button>
-        {migrationLog.length > 0 && (
-          <ul className="text-xs text-gray-400 space-y-0.5 font-mono">
-            {migrationLog.map((line, i) => <li key={i}>{line}</li>)}
-          </ul>
-        )}
-      </div>
-
       {/* Add new entry */}
       <div className="bg-gray-800 rounded-xl p-5 border border-gray-700 space-y-4">
         <h2 className="text-lg font-semibold text-gray-200">Add to Pack Catalog</h2>
