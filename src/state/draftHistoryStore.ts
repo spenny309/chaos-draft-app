@@ -24,6 +24,7 @@ interface DraftHistoryState {
   deleteDraft: (draftId: string) => Promise<void>;
   markRestockComplete: (draftId: string) => Promise<void>;
   linkDraftPlayers: (draftId: string, players: Draft['players']) => Promise<void>;
+  updateTournament: (draftId: string, tournament: Draft['tournament']) => Promise<void>;
 }
 
 export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
@@ -115,6 +116,13 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
     await updateDoc(doc(db, 'drafts', draftId), { players });
     set(state => ({
       drafts: state.drafts.map(d => d.id === draftId ? { ...d, players } : d),
+    }));
+  },
+
+  updateTournament: async (draftId, tournament) => {
+    await updateDoc(doc(db, 'drafts', draftId), { tournament });
+    set(state => ({
+      drafts: state.drafts.map(d => d.id === draftId ? { ...d, tournament } : d),
     }));
   },
 }));
