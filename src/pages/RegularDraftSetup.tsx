@@ -1,8 +1,6 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import PackCatalogSearch from '../components/PackCatalogSearch';
 import PlayerSearch from '../components/PlayerSearch';
-import { useSessionStore } from '../state/sessionStore';
 import { useInventoryStore } from '../state/inventoryStore';
 import type { PackCatalogEntry, DraftFormat, DraftPlayer } from '../types';
 import { DEFAULT_PACKS_PER_PERSON } from '../types';
@@ -28,11 +26,10 @@ interface RegularDraftSetupProps {
     format: DraftFormat;
     packsPerPerson: number;
   }) => void;
+  onStartChaos: (players: DraftPlayer[]) => void;
 }
 
-export default function RegularDraftSetup({ onNext }: RegularDraftSetupProps) {
-  const navigate = useNavigate();
-  const initializeSession = useSessionStore(s => s.initializeSession);
+export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraftSetupProps) {
   const packs = useInventoryStore(s => s.packs);
 
   const [numPlayers, setNumPlayers] = useState(4);
@@ -73,10 +70,11 @@ export default function RegularDraftSetup({ onNext }: RegularDraftSetupProps) {
 
   const handleSubmit = () => {
     if (isChaos) {
-      const names = players.map((p, i) => p.name.trim() || `Player ${i + 1}`);
-      const userIds = players.map(p => p.userId);
-      initializeSession(numPlayers, names, userIds);
-      navigate('/draft');
+      const namedPlayers = players.map((p, i) => ({
+        ...p,
+        name: p.name.trim() || `Player ${i + 1}`,
+      }));
+      onStartChaos(namedPlayers);
     } else {
       onNext({ players, sets, format: format as DraftFormat, packsPerPerson });
     }
@@ -86,9 +84,9 @@ export default function RegularDraftSetup({ onNext }: RegularDraftSetupProps) {
   const packsPerSet = sets.length > 0 ? (totalPacks / sets.length).toFixed(1) : '—';
   const isRounded = sets.length > 0 && totalPacks % sets.length !== 0;
 
-  const canProceed = isChaos
-    ? packs.length > 0
-    : players.every(p => p.name.trim().length > 0) && sets.length > 0 && packsPerPerson > 0;
+  const canProceed = players.every(p => p.name.trim().length > 0) && (
+    isChaos || (sets.length > 0 && packsPerPerson > 0)
+  );
 
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
