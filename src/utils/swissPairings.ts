@@ -20,8 +20,9 @@ export function computeStandings(
     for (const pairing of round.pairings) {
       if (pairing.player2Id === null || !pairing.result) continue;
       const { matchWinner, player1Wins, player2Wins } = pairing.result;
-      const s1 = standings.get(pairing.player1Id)!;
-      const s2 = standings.get(pairing.player2Id)!;
+      const s1 = standings.get(pairing.player1Id);
+      const s2 = standings.get(pairing.player2Id);
+      if (!s1 || !s2) continue;
       s1.gameWins += player1Wins;
       s2.gameWins += player2Wins;
       if (matchWinner === 'player1') { s1.matchWins++; s2.matchLosses++; }
@@ -59,7 +60,9 @@ export function generateSwissPairings(
   const sorted = [...standings].sort(
     (a, b) => b.matchWins - a.matchWins || b.gameWins - a.gameWins
   );
-  const unpaired = sorted.map(s => players.find(p => p.id === s.playerId)!);
+  const unpaired = sorted
+    .map(s => players.find(p => p.id === s.playerId))
+    .filter((p): p is DraftPlayer => p !== undefined);
 
   const pairings: TournamentPairing[] = [];
   let byePairing: TournamentPairing | undefined;

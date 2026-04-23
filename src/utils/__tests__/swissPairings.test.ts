@@ -159,4 +159,13 @@ describe('generateSwissPairings', () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids.every(id => id.length > 0)).toBe(true);
   });
+
+  it('forces a rematch when no unplayed opponent exists', () => {
+    const players = [p('A'), p('B')];
+    const r1 = makeRound(1, [{ p1: 'A', p2: 'B', winner: 'player1' }]);
+    const pairings = generateSwissPairings(players, [r1]);
+    expect(pairings).toHaveLength(1);
+    const ids = [pairings[0].player1Id, pairings[0].player2Id].sort().join(':');
+    expect(ids).toBe('A:B');
+  });
 });
