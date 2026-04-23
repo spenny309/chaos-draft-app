@@ -13,7 +13,7 @@ interface AggregatedPack {
 export default function DraftInventory() {
   const { allItems, isLoading, loadAllInventory } = usePrivateInventoryStore();
   const { publicProfiles } = useUserStore();
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [showBreakdowns, setShowBreakdowns] = useState(true);
 
   useEffect(() => {
     loadAllInventory();
@@ -51,7 +51,15 @@ export default function DraftInventory() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-white">Draft Inventory</h2>
-        <p className="text-gray-400 text-sm">{packs.length} pack types · {[...aggregated.values()].reduce((s, p) => s + p.total, 0)} total</p>
+        <div className="flex items-center gap-3">
+          <p className="text-gray-400 text-sm">{packs.length} pack types · {[...aggregated.values()].reduce((s, p) => s + p.total, 0)} total</p>
+          <button
+            onClick={() => setShowBreakdowns(v => !v)}
+            className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+          >
+            {showBreakdowns ? 'Hide breakdown' : 'Show breakdown'}
+          </button>
+        </div>
       </div>
       <p className="text-gray-400 text-sm">Combined view of all users' private inventories. Read-only.</p>
 
@@ -64,8 +72,7 @@ export default function DraftInventory() {
         {packs.map(pack => (
           <div
             key={pack.catalogId}
-            className="bg-gray-800 rounded-xl border border-gray-700 flex flex-col overflow-hidden cursor-pointer"
-            onClick={() => setExpanded(expanded === pack.catalogId ? null : pack.catalogId)}
+            className="bg-gray-800 rounded-xl border border-gray-700 flex flex-col overflow-hidden"
           >
             <img
               src={pack.imageUrl}
@@ -76,7 +83,7 @@ export default function DraftInventory() {
             <div className="p-3 space-y-1">
               <p className="text-white text-xs font-medium text-center truncate">{pack.name}</p>
               <p className="text-blue-400 text-sm font-bold text-center">{pack.total}</p>
-              {expanded === pack.catalogId && (
+              {showBreakdowns && (
                 <div className="mt-2 space-y-1 border-t border-gray-700 pt-2">
                   {pack.contributors.sort((a, b) => b.count - a.count).map(c => (
                     <div key={c.userId} className="flex justify-between text-xs text-gray-300">
