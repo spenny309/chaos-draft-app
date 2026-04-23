@@ -17,7 +17,7 @@ import type {
   DraftTournament,
 } from '../types';
 
-type Step = 'setup' | 'preview' | 'seating' | 'matchups' | 'saved';
+type Step = 'setup' | 'preview' | 'seating' | 'matchups';
 
 interface RegularConfig {
   players: DraftPlayer[];
@@ -91,7 +91,7 @@ export default function DraftHub() {
         };
         const draftId = await savePreview(config, previewAllocations, pendingAllocation);
         await updateTournament(draftId, tournament);
-        setStep('saved');
+        navigate('/tournament');
       }
     } catch (err) {
       console.error('Failed to start round 1:', err);
@@ -157,28 +157,5 @@ export default function DraftHub() {
     );
   }
 
-  return (
-    <div className="max-w-md mx-auto text-center space-y-4 py-12">
-      <div className="text-4xl">✅</div>
-      <h2 className="text-xl font-bold text-white">Draft Saved</h2>
-      <p className="text-gray-300 text-sm">
-        The draft preview has been saved. An admin can finalize it from the History tab,
-        which will deduct packs from everyone's private inventories.
-      </p>
-      <div className="flex gap-3 justify-center">
-        <button
-          onClick={() => navigate('/history')}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg font-medium"
-        >
-          View in History
-        </button>
-        <button
-          onClick={handleStartOver}
-          className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm rounded-lg font-medium"
-        >
-          New Draft
-        </button>
-      </div>
-    </div>
-  );
+  return null;
 }
