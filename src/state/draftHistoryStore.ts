@@ -134,6 +134,11 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
     const draft = get().drafts.find(d => d.id === draftId);
     if (!draft?.tournament) return;
 
+    const targetRound = draft.tournament.rounds.find(r => r.roundNumber === roundNumber);
+    if (!targetRound) return;
+    const targetPairing = targetRound.pairings.find(p => p.id === pairingId);
+    if (!targetPairing) return;
+
     const fullResult: PairingResult = {
       ...result,
       submittedBy: auth.currentUser?.uid ?? '',
@@ -147,9 +152,8 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
         const updatedPairings = round.pairings.map(p =>
           p.id !== pairingId ? p : { ...p, result: fullResult, status: 'complete' as const }
         );
-        const allComplete = updatedPairings
-          .filter(p => p.player2Id !== null)
-          .every(p => p.status === 'complete');
+        const nonByePairings = updatedPairings.filter(p => p.player2Id !== null);
+        const allComplete = nonByePairings.length > 0 && nonByePairings.every(p => p.status === 'complete');
         return { ...round, pairings: updatedPairings, status: allComplete ? 'complete' as const : 'active' as const };
       }),
     };
