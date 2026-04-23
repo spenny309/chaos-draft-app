@@ -26,6 +26,7 @@ service cloud.firestore {
         || (isAuthed() && request.auth.uid == userId
             && !request.resource.data.diff(resource.data).affectedKeys()
                 .hasAny(['role', 'status']));
+      allow delete: if isAdmin();
     }
 
     // Public profiles — name only, no email; any authenticated user can read

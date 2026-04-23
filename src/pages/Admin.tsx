@@ -37,7 +37,8 @@ export default function Admin() {
 }
 
 function UserManagement() {
-  const { allUsers, isLoading, loadAllUsers, updateUserStatus } = useUserStore();
+  const { allUsers, isLoading, loadAllUsers, updateUserStatus, deleteUser } = useUserStore();
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   useEffect(() => { loadAllUsers(); }, []);
 
@@ -59,7 +60,7 @@ function UserManagement() {
             <p className="text-gray-400 text-sm">{user.email}</p>
             <div className="mt-1">{statusBadge(user.status)}</div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             {user.status !== 'approved' && (
               <button
                 onClick={() => updateUserStatus(user.uid, 'approved')}
@@ -77,16 +78,57 @@ function UserManagement() {
               </button>
             )}
             {user.status === 'denied' && (
-              <button
-                onClick={() => updateUserStatus(user.uid, 'pending')}
-                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 text-white text-sm rounded-lg font-medium"
-              >
-                Reset to Pending
-              </button>
+              <>
+                <button
+                  onClick={() => updateUserStatus(user.uid, 'pending')}
+                  className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 text-white text-sm rounded-lg font-medium"
+                >
+                  Reset to Pending
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(user.uid)}
+                  className="px-3 py-1.5 bg-red-900 hover:bg-red-800 text-red-300 text-sm rounded-lg font-medium"
+                >
+                  Delete
+                </button>
+              </>
             )}
           </div>
         </div>
       ))}
+
+      {confirmDelete && (() => {
+        const user = allUsers.find(u => u.uid === confirmDelete)!;
+        return (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-800 rounded-2xl p-6 max-w-md w-full space-y-4 border border-red-700">
+              <h3 className="text-lg font-bold text-red-400">Delete User</h3>
+              <p className="text-gray-300 text-sm">
+                This will permanently delete <strong className="text-white">{user.name}</strong>'s
+                account data from the database.
+              </p>
+              <p className="text-yellow-400 text-xs">
+                Note: their Firebase Authentication account must be removed manually
+                from the Firebase Console → Authentication.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => { await deleteUser(confirmDelete); setConfirmDelete(null); }}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-bold"
+                >
+                  Delete Account Data
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(null)}
+                  className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg text-sm font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

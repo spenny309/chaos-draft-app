@@ -26,6 +26,7 @@ interface UserStore {
   loadAllUsers: () => Promise<void>;
   loadPublicProfiles: () => Promise<void>;
   updateUserStatus: (uid: string, status: UserProfile['status']) => Promise<void>;
+  deleteUser: (uid: string) => Promise<void>;
   setIsRegistering: (v: boolean) => void;
 }
 
@@ -109,6 +110,15 @@ export const useUserStore = create<UserStore>((set, get) => ({
       console.error('Failed to load users:', err);
       set({ isLoading: false });
     }
+  },
+
+  deleteUser: async (uid) => {
+    await deleteDoc(doc(db, 'users', uid));
+    await deleteDoc(doc(db, 'publicProfiles', uid)).catch(() => {/* may not exist */});
+    set(state => ({
+      allUsers: state.allUsers.filter(u => u.uid !== uid),
+      publicProfiles: state.publicProfiles.filter(p => p.uid !== uid),
+    }));
   },
 
   setIsRegistering: (v) => set({ isRegistering: v }),
