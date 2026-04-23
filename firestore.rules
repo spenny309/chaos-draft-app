@@ -52,13 +52,13 @@ service cloud.firestore {
     }
 
     // Private inventory — approved users read all (for Draft Inventory view);
-    // users write only their own
+    // users write only their own; admin can write any (needed for batchDeduct on finalize)
     match /privateInventory/{itemId} {
       allow read: if isApproved();
       allow create, update: if isApproved()
-        && request.resource.data.ownerId == request.auth.uid;
+        && (isAdmin() || request.resource.data.ownerId == request.auth.uid);
       allow delete: if isApproved()
-        && resource.data.ownerId == request.auth.uid;
+        && (isAdmin() || resource.data.ownerId == request.auth.uid);
     }
 
     // Drafts — approved users read all and create;

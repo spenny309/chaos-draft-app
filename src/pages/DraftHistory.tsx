@@ -4,7 +4,7 @@ import { useInventoryStore } from "../state/inventoryStore";
 import { useUserStore } from "../state/userStore";
 import { useRegularDraftStore } from "../state/regularDraftStore";
 import { usePrivateInventoryStore } from "../state/privateInventoryStore";
-import type { Draft, DraftPackRef } from "../types";
+import type { Draft, DraftPackRef, DraftPlayer } from "../types";
 
 const typeBadgeColors: Record<string, string> = {
   chaos: 'bg-purple-700 text-purple-200',
@@ -151,14 +151,69 @@ function RestockAlert({ draft, inventoryMap, inventoryLoading, markRestockComple
   return null;
 }
 
+interface LinkPlayersSectionProps {
+  draft: Draft;
+  publicProfiles: { uid: string; name: string }[];
+  linkDraftPlayers: (draftId: string, players: DraftPlayer[]) => Promise<void>;
+}
+
+function LinkPlayersSection({ draft, publicProfiles, linkDraftPlayers }: LinkPlayersSectionProps) {
+  const [links, setLinks] = useState<Record<string, string | null>>(
+    () => Object.fromEntries(draft.players.map(p => [p.id, p.userId]))
+  );
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const isDirty = draft.players.some(p => links[p.id] !== p.userId);
+
+  const handleSave = async () => {
+    setSaving(true);
+    const updated = draft.players.map(p => ({ ...p, userId: links[p.id] ?? null }));
+    await linkDraftPlayers(draft.id, updated);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return (
+    <div className="mt-6 pt-6 border-t border-gray-700/50">
+      <p className="text-sm text-gray-400 uppercase tracking-wide font-semibold mb-3">Link Players to Accounts</p>
+      <div className="space-y-2">
+        {draft.players.map(player => (
+          <div key={player.id} className="flex items-center gap-3">
+            <span className="text-gray-300 text-sm w-28 truncate">{player.name}</span>
+            <select
+              value={links[player.id] ?? ''}
+              onChange={e => setLinks(prev => ({ ...prev, [player.id]: e.target.value || null }))}
+              className="flex-1 px-3 py-1.5 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="">— Unlinked —</option>
+              {publicProfiles.map(u => (
+                <option key={u.uid} value={u.uid}>{u.name}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+      <button
+        onClick={handleSave}
+        disabled={saving || !isDirty}
+        className="mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg"
+      >
+        {saving ? 'Saving…' : saved ? 'Saved!' : 'Save Links'}
+      </button>
+    </div>
+  );
+}
+
 export default function DraftHistory() {
-  const { drafts, loading, error, deleteDraft, markRestockComplete, loadDrafts } =
+  const { drafts, loading, error, deleteDraft, markRestockComplete, loadDrafts, linkDraftPlayers } =
     useDraftHistoryStore();
 
   const { packs: inventoryPacks, loading: inventoryLoading } =
     useInventoryStore();
 
-  const { profile } = useUserStore();
+  const { profile, publicProfiles, loadPublicProfiles } = useUserStore();
   const { finalizeDraft } = useRegularDraftStore();
   const { batchDeduct } = usePrivateInventoryStore();
 
@@ -178,6 +233,7 @@ export default function DraftHistory() {
 
   const toggleExpand = (draftId: string) => {
     setExpandedDraftId((prevId) => (prevId === draftId ? null : draftId));
+    if (profile?.role === 'admin' && publicProfiles.length === 0) loadPublicProfiles();
   };
 
   const handleDelete = (draft: Draft) => {
@@ -396,6 +452,14 @@ export default function DraftHistory() {
                       >
                         {finalizing === draft.id ? 'Finalizing…' : 'Finalize Draft'}
                       </button>
+                    )}
+
+                    {profile?.role === 'admin' && (
+                      <LinkPlayersSection
+                        draft={draft}
+                        publicProfiles={publicProfiles}
+                        linkDraftPlayers={linkDraftPlayers}
+                      />
                     )}
 
                     <div className="mt-6 pt-6 border-t border-gray-700/50 text-right">

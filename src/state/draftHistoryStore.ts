@@ -23,6 +23,7 @@ interface DraftHistoryState {
   saveDraft: (draft: Omit<Draft, 'id' | 'createdAt'>) => Promise<string>;
   deleteDraft: (draftId: string) => Promise<void>;
   markRestockComplete: (draftId: string) => Promise<void>;
+  linkDraftPlayers: (draftId: string, players: Draft['players']) => Promise<void>;
 }
 
 export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
@@ -107,6 +108,13 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
     await updateDoc(doc(db, 'drafts', draftId), { restockComplete: true });
     set(state => ({
       drafts: state.drafts.map(d => d.id === draftId ? { ...d, restockComplete: true } : d),
+    }));
+  },
+
+  linkDraftPlayers: async (draftId, players) => {
+    await updateDoc(doc(db, 'drafts', draftId), { players });
+    set(state => ({
+      drafts: state.drafts.map(d => d.id === draftId ? { ...d, players } : d),
     }));
   },
 }));
