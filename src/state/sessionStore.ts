@@ -4,6 +4,7 @@ import { useInventoryStore } from "./inventoryStore";
 import { type Pack } from "./inventoryStore";
 import { auth } from '../firebase';
 import { useDraftHistoryStore } from './draftHistoryStore';
+import type { DraftTournament } from '../types';
 
 export interface Player {
   id: string;
@@ -19,6 +20,8 @@ export interface SessionState {
   packsSelectedOrder: Pack[];
   tempInventory: Pack[];
   confirmed: boolean;
+  pendingTournament: DraftTournament | null;
+  setPendingTournament: (tournament: DraftTournament) => void;
 
   initializeSession: (
     numPlayers: number,
@@ -39,6 +42,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   packsSelectedOrder: [],
   tempInventory: [],
   confirmed: false,
+  pendingTournament: null,
 
   // This function works as-is because it fetches from the (now Firebase-backed) inventoryStore
   initializeSession: (numPlayers, playerNames, playerUserIds = [], numPacks) => {
@@ -87,6 +91,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     });
   },
 
+  setPendingTournament: (tournament) => {
+    set({ pendingTournament: tournament });
+  },
+
   // This function works as-is, correctly pulling the fresh inventory from the store.
   resetSession: () => {
     const { players } = get();
@@ -99,6 +107,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       packsSelectedOrder: [],
       tempInventory: inventory.map((p) => ({ ...p })),
       confirmed: false,
+      pendingTournament: null,
     });
   },
 
@@ -129,6 +138,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           imageUrl: p.imageUrl,
         })),
         restockComplete: false,
+        tournament: get().pendingTournament ?? undefined,
       });
 
       set({ confirmed: true });
