@@ -125,7 +125,7 @@ export default function App() {
   if (!firebaseUser) {
     return (
       <div className="min-h-screen bg-gray-950 text-gray-100 flex items-center justify-center p-4">
-        <Auth />
+        <Auth currentUser={null} />
       </div>
     );
   }
@@ -147,7 +147,7 @@ export default function App() {
             {isAdmin && <NavLink to="/admin">Admin</NavLink>}
           </nav>
           <div className="w-full md:w-auto">
-            <Auth />
+            <Auth currentUser={firebaseUser} />
           </div>
         </header>
 

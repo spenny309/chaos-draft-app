@@ -70,7 +70,7 @@ export default function RegularDraftPreview({
     });
 
     setOverrides(newOverrides);
-  }, [allItems.length, allUsers.length]);
+  }, [allItems, allUsers]);
 
   const handleCountChange = (catalogId: string, userId: string, rawValue: string) => {
     setValidationErrors(new Map()); // clear stale errors on any edit

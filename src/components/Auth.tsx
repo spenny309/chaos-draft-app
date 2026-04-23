@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { auth } from '../firebase';
+import type { User } from 'firebase/auth';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -7,7 +8,11 @@ import {
 } from 'firebase/auth';
 import { useUserStore } from '../state/userStore';
 
-export default function Auth() {
+interface AuthProps {
+  currentUser: User | null;
+}
+
+export default function Auth({ currentUser }: AuthProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -16,7 +21,6 @@ export default function Auth() {
   const [submitting, setSubmitting] = useState(false);
 
   const { createProfile } = useUserStore();
-  const currentUser = auth.currentUser;
 
   const handleLogIn = async (e: React.FormEvent) => {
     e.preventDefault();
