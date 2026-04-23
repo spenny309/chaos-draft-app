@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import {
   doc,
   setDoc,
+  deleteDoc,
   onSnapshot,
   collection,
   getDocs,
@@ -79,7 +80,9 @@ export const useUserStore = create<UserStore>((set, get) => ({
       status: isAdmin ? 'approved' : 'pending',
       createdAt: serverTimestamp(),
     });
-    await setDoc(doc(db, 'publicProfiles', uid), { name });
+    if (isAdmin) {
+      await setDoc(doc(db, 'publicProfiles', uid), { name });
+    }
     if (!isAdmin) {
       await addDoc(collection(db, 'mail'), {
         to: adminEmail,
@@ -123,8 +126,20 @@ export const useUserStore = create<UserStore>((set, get) => ({
 
   updateUserStatus: async (uid, status) => {
     await updateDoc(doc(db, 'users', uid), { status });
-    set(state => ({
-      allUsers: state.allUsers.map(u => u.uid === uid ? { ...u, status } : u),
-    }));
+    const user = get().allUsers.find(u => u.uid === uid);
+    if (status === 'approved' && user) {
+      await setDoc(doc(db, 'publicProfiles', uid), { name: user.name });
+      set(state => ({
+        allUsers: state.allUsers.map(u => u.uid === uid ? { ...u, status } : u),
+        publicProfiles: [...state.publicProfiles.filter(p => p.uid !== uid), { uid, name: user.name }]
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      }));
+    } else {
+      await deleteDoc(doc(db, 'publicProfiles', uid));
+      set(state => ({
+        allUsers: state.allUsers.map(u => u.uid === uid ? { ...u, status } : u),
+        publicProfiles: state.publicProfiles.filter(p => p.uid !== uid),
+      }));
+    }
   },
 }));
