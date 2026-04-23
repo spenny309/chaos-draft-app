@@ -1,5 +1,10 @@
 import type { Timestamp } from 'firebase/firestore';
 
+export interface PublicProfile {
+  uid: string;
+  name: string;
+}
+
 export interface UserProfile {
   uid: string;
   name: string;
@@ -80,5 +85,5 @@ export const DEFAULT_PACKS_PER_PERSON: Record<DraftFormat, number> = {
   'Regular Draft': 3,
   'Mobius Draft': 6,
   'Sealed': 6,
-  'Team Sealed': 3,
+  'Team Sealed': 4,
 };
