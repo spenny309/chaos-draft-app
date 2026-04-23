@@ -80,8 +80,9 @@ function DeniedScreen() {
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [profileTimedOut, setProfileTimedOut] = useState(false);
 
-  const { profile, startListening, stopListening } = useUserStore();
+  const { profile, startListening, stopListening, loadPublicProfiles, isRegistering } = useUserStore();
   const loadPacks = useInventoryStore(s => s.loadPacks);
   const clearPacks = useInventoryStore(s => s.clearAll);
   const loadDrafts = useDraftHistoryStore(s => s.loadDrafts);
@@ -104,6 +105,16 @@ export default function App() {
     return () => unsub();
   }, []);
 
+  // If firebaseUser is set but profile never arrives, show a fallback after 6s
+  useEffect(() => {
+    if (!firebaseUser || profile) {
+      setProfileTimedOut(false);
+      return;
+    }
+    const timer = setTimeout(() => setProfileTimedOut(true), 6000);
+    return () => clearTimeout(timer);
+  }, [firebaseUser, profile]);
+
   // Once profile is approved, load app data
   useEffect(() => {
     if (profile?.status === 'approved') {
@@ -111,10 +122,11 @@ export default function App() {
       loadDrafts();
       loadCatalog();
       loadMyInventory();
+      loadPublicProfiles();
     }
   }, [profile?.status]);
 
-  if (authLoading || (firebaseUser && !profile)) {
+  if (!isRegistering && (authLoading || (firebaseUser && !profile && !profileTimedOut))) {
     return (
       <div className="min-h-screen bg-gray-950 text-gray-100 flex items-center justify-center">
         <div className="text-xl font-semibold">Loading…</div>
@@ -122,7 +134,24 @@ export default function App() {
     );
   }
 
-  if (!firebaseUser) {
+  if (firebaseUser && !profile && profileTimedOut) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-gray-100 flex items-center justify-center p-4">
+        <div className="max-w-md text-center space-y-4">
+          <h2 className="text-2xl font-bold text-yellow-400">Account Pending Approval</h2>
+          <p className="text-gray-300">Your registration is awaiting admin approval. You'll be able to log in once your account has been approved.</p>
+          <button
+            onClick={() => auth.signOut()}
+            className="mt-4 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg text-sm"
+          >
+            Log Out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!firebaseUser || isRegistering) {
     return (
       <div className="min-h-screen bg-gray-950 text-gray-100 flex items-center justify-center p-4">
         <Auth currentUser={null} />
