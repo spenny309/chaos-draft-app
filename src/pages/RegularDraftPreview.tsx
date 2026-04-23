@@ -27,20 +27,20 @@ export default function RegularDraftPreview({
   players, sets, format, packsPerPerson, onBack, onSaved,
 }: RegularDraftPreviewProps) {
   const { allItems, loadAllInventory } = usePrivateInventoryStore();
-  const { allUsers, loadAllUsers } = useUserStore();
+  const { publicProfiles } = useUserStore();
   const { computePreview, savePreview, wasRounded, previewAllocations } = useRegularDraftStore();
   const [overrides, setOverrides] = useState<Map<string, OverrideEntry[]>>(new Map());
   const [saving, setSaving] = useState(false);
   const [validationErrors, setValidationErrors] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
-    Promise.all([loadAllInventory(), loadAllUsers()]);
+    loadAllInventory();
   }, []);
 
   useEffect(() => {
-    if (allItems.length === 0 || allUsers.length === 0) return;
+    if (allItems.length === 0) return;
 
-    const userMap = new Map(allUsers.map(u => [u.uid, u.name]));
+    const userMap = new Map(publicProfiles.map(u => [u.uid, u.name]));
 
     const { allocations } = computePreview(
       { players, sets, format, packsPerPerson },
@@ -70,7 +70,7 @@ export default function RegularDraftPreview({
     });
 
     setOverrides(newOverrides);
-  }, [allItems, allUsers]);
+  }, [allItems, publicProfiles]);
 
   const handleCountChange = (catalogId: string, userId: string, rawValue: string) => {
     setValidationErrors(new Map()); // clear stale errors on any edit
@@ -144,7 +144,7 @@ export default function RegularDraftPreview({
       { players, sets, format, packsPerPerson },
       allItems
     );
-    const userMap = new Map(allUsers.map(u => [u.uid, u.name]));
+    const userMap = new Map(publicProfiles.map(u => [u.uid, u.name]));
     const newOverrides = new Map<string, OverrideEntry[]>();
 
     allocations.forEach(allocation => {

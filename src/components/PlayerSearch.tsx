@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useUserStore } from '../state/userStore';
-import type { UserProfile } from '../types';
+import type { PublicProfile } from '../types';
 
 interface PlayerSearchProps {
   value: string;
@@ -9,18 +9,17 @@ interface PlayerSearchProps {
 }
 
 export default function PlayerSearch({ value, onChange, placeholder = 'Player name…' }: PlayerSearchProps) {
-  const { allUsers } = useUserStore();
+  const { publicProfiles } = useUserStore();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const approvedUsers = allUsers.filter(u => u.status === 'approved');
   const filtered = value.trim().length < 1
     ? []
-    : approvedUsers.filter(u =>
+    : publicProfiles.filter(u =>
         u.name.toLowerCase().includes(value.toLowerCase())
       ).slice(0, 8);
 
-  const handleSelect = (user: UserProfile) => {
+  const handleSelect = (user: PublicProfile) => {
     onChange(user.name, user.uid);
     setOpen(false);
   };
@@ -59,7 +58,6 @@ export default function PlayerSearch({ value, onChange, placeholder = 'Player na
               className="px-4 py-2 cursor-pointer hover:bg-gray-700 text-white text-sm"
             >
               {user.name}
-              <span className="ml-2 text-gray-400 text-xs">{user.email}</span>
             </li>
           ))}
         </ul>

@@ -12,15 +12,14 @@ interface AggregatedPack {
 
 export default function DraftInventory() {
   const { allItems, isLoading, loadAllInventory } = usePrivateInventoryStore();
-  const { allUsers, loadAllUsers } = useUserStore();
+  const { publicProfiles } = useUserStore();
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
     loadAllInventory();
-    loadAllUsers();
   }, []);
 
-  const userNameMap = new Map(allUsers.map(u => [u.uid, u.name]));
+  const userNameMap = new Map(publicProfiles.map(u => [u.uid, u.name]));
 
   // Aggregate by catalogId
   const aggregated = new Map<string, AggregatedPack>();
