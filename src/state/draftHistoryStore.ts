@@ -137,7 +137,7 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
     const targetRound = draft.tournament.rounds.find(r => r.roundNumber === roundNumber);
     if (!targetRound) return;
     const targetPairing = targetRound.pairings.find(p => p.id === pairingId);
-    if (!targetPairing) return;
+    if (!targetPairing || targetPairing.result) return;
 
     const fullResult: PairingResult = {
       ...result,

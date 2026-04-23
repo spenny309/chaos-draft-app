@@ -27,9 +27,8 @@ export default function TournamentView({ draft, isAdmin, currentUserId }: Tourna
   const currentRound = tournament.rounds.find(r => r.roundNumber === tournament.currentRound);
   const pastRounds = tournament.rounds.filter(r => r.roundNumber < tournament.currentRound);
 
-  const allCurrentComplete = currentRound
-    ? currentRound.pairings.filter(p => p.player2Id !== null).every(p => p.status === 'complete')
-    : false;
+  const nonByePairings = currentRound?.pairings.filter(p => p.player2Id !== null) ?? [];
+  const allCurrentComplete = nonByePairings.length > 0 && nonByePairings.every(p => p.status === 'complete');
 
   const canGenerateNext =
     !pendingPairings &&
@@ -39,8 +38,7 @@ export default function TournamentView({ draft, isAdmin, currentUserId }: Tourna
 
   const handleGenerateNext = () => {
     try {
-      const completedRounds = tournament.rounds.filter(r => r.status === 'complete');
-      const generated = generateSwissPairings(players, completedRounds);
+      const generated = generateSwissPairings(players, tournament.rounds);
       setPendingPairings(generated);
     } catch {
       setError('Failed to generate pairings. Please try again.');
