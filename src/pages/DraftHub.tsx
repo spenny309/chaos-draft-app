@@ -34,6 +34,7 @@ export default function DraftHub() {
   const [orderedPlayers, setOrderedPlayers] = useState<DraftPlayer[] | null>(null);
   const [round1Pairings, setRound1Pairings] = useState<TournamentPairing[] | null>(null);
   const [starting, setStarting] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const navigate = useNavigate();
   const { savePreview, previewAllocations } = useRegularDraftStore();
@@ -59,6 +60,7 @@ export default function DraftHub() {
   const handleStartRound1 = async () => {
     if (!orderedPlayers || !round1Pairings) return;
     setStarting(true);
+    setSaveError(null);
     try {
       const seats = playersToSeats(orderedPlayers);
       const tournament: DraftTournament = {
@@ -74,12 +76,16 @@ export default function DraftHub() {
         const userIds = orderedPlayers.map(p => p.userId);
         initializeSession(orderedPlayers.length, names, userIds);
         setPendingTournament(tournament);
+        setStarting(false);
         navigate('/draft');
       } else if (config && pendingAllocation) {
         const draftId = await savePreview(config, previewAllocations, pendingAllocation);
         await updateTournament(draftId, tournament);
         setStep('saved');
       }
+    } catch (err) {
+      console.error('Failed to start round 1:', err);
+      setSaveError('Failed to save. Please try again.');
     } finally {
       setStarting(false);
     }
@@ -127,12 +133,17 @@ export default function DraftHub() {
 
   if (step === 'matchups' && orderedPlayers && round1Pairings) {
     return (
-      <RoundMatchups
-        players={orderedPlayers}
-        pairings={round1Pairings}
-        onStart={handleStartRound1}
-        disabled={starting}
-      />
+      <div>
+        {saveError && (
+          <p className="text-red-400 text-sm text-center mb-3">{saveError}</p>
+        )}
+        <RoundMatchups
+          players={orderedPlayers}
+          pairings={round1Pairings}
+          onStart={handleStartRound1}
+          disabled={starting}
+        />
+      </div>
     );
   }
 
