@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { auth } from '../firebase';
 import type { User } from 'firebase/auth';
 import {
@@ -20,7 +20,7 @@ export default function Auth({ currentUser }: AuthProps) {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const { createProfile } = useUserStore();
+  const { createProfile, setIsRegistering } = useUserStore();
 
   const handleLogIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,13 +42,18 @@ export default function Auth({ currentUser }: AuthProps) {
     if (!name.trim()) { setError('Name is required.'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
     setSubmitting(true);
+    setIsRegistering(true);
+    let credential;
     try {
-      const credential = await createUserWithEmailAndPassword(auth, email, password);
+      credential = await createUserWithEmailAndPassword(auth, email, password);
       await createProfile(credential.user.uid, name.trim(), email);
       setEmail(''); setPassword(''); setName('');
     } catch (err: unknown) {
-      setError((err as Error).message.replace('Firebase: ', ''));
+      const message = (err as Error).message.replace('Firebase: ', '');
+      if (credential) await credential.user.delete();
+      setError(message);
     } finally {
+      setIsRegistering(false);
       setSubmitting(false);
     }
   };
@@ -87,7 +92,7 @@ export default function Auth({ currentUser }: AuthProps) {
               value={name}
               onChange={e => setName(e.target.value)}
               className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Your full name"
+              placeholder="Your first name"
             />
           </div>
         )}
