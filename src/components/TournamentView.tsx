@@ -38,9 +38,13 @@ export default function TournamentView({ draft, isAdmin, currentUserId }: Tourna
     (allCurrentComplete || isAdmin);
 
   const handleGenerateNext = () => {
-    const completedRounds = tournament.rounds.filter(r => r.status === 'complete');
-    const generated = generateSwissPairings(players, completedRounds);
-    setPendingPairings(generated);
+    try {
+      const completedRounds = tournament.rounds.filter(r => r.status === 'complete');
+      const generated = generateSwissPairings(players, completedRounds);
+      setPendingPairings(generated);
+    } catch {
+      setError('Failed to generate pairings. Please try again.');
+    }
   };
 
   const handleConfirmRound = async () => {
