@@ -5,6 +5,7 @@ import { useUserStore } from "../state/userStore";
 import { useRegularDraftStore } from "../state/regularDraftStore";
 import { usePrivateInventoryStore } from "../state/privateInventoryStore";
 import type { Draft, DraftPackRef, DraftPlayer } from "../types";
+import TournamentView from '../components/TournamentView';
 
 const typeBadgeColors: Record<string, string> = {
   chaos: 'bg-purple-700 text-purple-200',
@@ -459,6 +460,14 @@ export default function DraftHistory() {
                         draft={draft}
                         publicProfiles={publicProfiles}
                         linkDraftPlayers={linkDraftPlayers}
+                      />
+                    )}
+
+                    {draft.tournament && (
+                      <TournamentView
+                        draft={draft}
+                        isAdmin={profile?.role === 'admin'}
+                        currentUserId={profile?.uid}
                       />
                     )}
 
