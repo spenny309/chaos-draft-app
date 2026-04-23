@@ -111,7 +111,7 @@ export default function App() {
       setProfileTimedOut(false);
       return;
     }
-    const timer = setTimeout(() => setProfileTimedOut(true), 6000);
+    const timer = setTimeout(() => setProfileTimedOut(true), 15000);
     return () => clearTimeout(timer);
   }, [firebaseUser, profile]);
 

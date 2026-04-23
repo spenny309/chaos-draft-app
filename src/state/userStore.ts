@@ -38,13 +38,19 @@ export const useUserStore = create<UserStore>((set, get) => ({
 
   startListening: (uid) => {
     get()._unsubscribe?.();
-    const unsub = onSnapshot(doc(db, 'users', uid), (snap) => {
-      if (snap.exists()) {
-        set({ profile: { uid, ...snap.data() } as UserProfile });
-      } else {
-        set({ profile: null });
+    const unsub = onSnapshot(
+      doc(db, 'users', uid),
+      (snap) => {
+        if (snap.exists()) {
+          set({ profile: { uid, ...snap.data() } as UserProfile });
+        } else {
+          set({ profile: null });
+        }
+      },
+      (error) => {
+        console.error('[userStore] Failed to load user profile:', error.code, error.message);
       }
-    });
+    );
     set({ _unsubscribe: unsub });
   },
 
