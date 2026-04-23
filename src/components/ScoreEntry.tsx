@@ -12,6 +12,8 @@ function playerName(id: string, players: DraftPlayer[]): string {
 }
 
 export default function ScoreEntry({ pairing, players, onSubmit }: ScoreEntryProps) {
+  if (pairing.player2Id === null) return null;
+
   const [p1Wins, setP1Wins] = useState(0);
   const [p2Wins, setP2Wins] = useState(0);
   const [ties, setTies] = useState(0);
