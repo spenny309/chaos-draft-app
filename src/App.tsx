@@ -21,6 +21,7 @@ import DraftHub from './pages/DraftHub';
 import Draft from './pages/Draft';
 import DraftHistory from './pages/DraftHistory';
 import Admin from './pages/Admin';
+import Tournament from './pages/Tournament';
 
 const NavLink = ({ to, children }: { to: string; children: React.ReactNode }) => {
   const location = useLocation();
@@ -87,6 +88,8 @@ export default function App() {
   const clearPacks = useInventoryStore(s => s.clearAll);
   const loadDrafts = useDraftHistoryStore(s => s.loadDrafts);
   const clearDrafts = useDraftHistoryStore(s => s.clearDrafts);
+  const drafts = useDraftHistoryStore(s => s.drafts);
+  const hasActiveTournament = drafts.some(d => d.tournament?.status === 'active');
   const loadCatalog = usePackCatalogStore(s => s.loadEntries);
   const loadMyInventory = usePrivateInventoryStore(s => s.loadMyInventory);
 
@@ -173,6 +176,12 @@ export default function App() {
             <NavLink to="/">Draft</NavLink>
             <NavLink to="/inventory">Inventory</NavLink>
             <NavLink to="/history">History</NavLink>
+            {hasActiveTournament && (
+              <NavLink to="/tournament">
+                <span className="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1.5 relative -top-px" />
+                Tournament
+              </NavLink>
+            )}
             {isAdmin && <NavLink to="/admin">Admin</NavLink>}
           </nav>
           <div className="w-full md:w-auto">
@@ -186,6 +195,7 @@ export default function App() {
             <Route path="/draft" element={<Draft />} />
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/history" element={<DraftHistory />} />
+            <Route path="/tournament" element={<Tournament />} />
             {isAdmin && <Route path="/admin" element={<Admin />} />}
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
