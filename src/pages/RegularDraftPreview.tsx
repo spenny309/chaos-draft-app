@@ -11,7 +11,7 @@ interface RegularDraftPreviewProps {
   format: DraftFormat;
   packsPerPerson: number;
   onBack: () => void;
-  onSaved: (draftId: string) => void;
+  onConfirmed: (allocation: DraftAllocationEntry[]) => void;
 }
 
 interface OverrideEntry {
@@ -24,13 +24,13 @@ interface OverrideEntry {
 }
 
 export default function RegularDraftPreview({
-  players, sets, format, packsPerPerson, onBack, onSaved,
+  players, sets, format, packsPerPerson, onBack, onConfirmed,
 }: RegularDraftPreviewProps) {
   const { allItems, loadAllInventory } = usePrivateInventoryStore();
   const { publicProfiles } = useUserStore();
-  const { computePreview, savePreview, wasRounded, previewAllocations } = useRegularDraftStore();
+  const { computePreview, wasRounded } = useRegularDraftStore();
   const [overrides, setOverrides] = useState<Map<string, OverrideEntry[]>>(new Map());
-  const [saving, setSaving] = useState(false);
+  const [allocations, setAllocations] = useState<ReturnType<typeof computePreview>['allocations']>([]);
   const [validationErrors, setValidationErrors] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
@@ -69,6 +69,7 @@ export default function RegularDraftPreview({
       newOverrides.set(allocation.catalogId, allContributors);
     });
 
+    setAllocations(allocations);
     setOverrides(newOverrides);
   }, [allItems, publicProfiles]);
 
@@ -108,9 +109,8 @@ export default function RegularDraftPreview({
     return errors.size === 0;
   };
 
-  const handleSave = async () => {
+  const handleConfirm = () => {
     if (!validate()) return;
-    setSaving(true);
 
     const flatAllocation: DraftAllocationEntry[] = [];
     for (const entries of overrides.values()) {
@@ -126,17 +126,7 @@ export default function RegularDraftPreview({
         }
       }
     }
-
-    try {
-      const draftId = await savePreview(
-        { players, sets, format, packsPerPerson },
-        previewAllocations,
-        flatAllocation
-      );
-      onSaved(draftId);
-    } finally {
-      setSaving(false);
-    }
+    onConfirmed(flatAllocation);
   };
 
   const handleResetToDefault = () => {
@@ -164,6 +154,7 @@ export default function RegularDraftPreview({
       }));
     });
 
+    setAllocations(allocations);
     setOverrides(newOverrides);
     setValidationErrors(new Map());
   };
@@ -204,7 +195,7 @@ export default function RegularDraftPreview({
         const setTotal = entries.reduce((s, e) => s + e.count, 0);
         const needed = counts[idx];
         const error = validationErrors.get(set.id);
-        const setAlloc = previewAllocations.find(a => a.catalogId === set.id);
+        const setAlloc = allocations.find(a => a.catalogId === set.id);
 
         return (
           <div key={set.id} className={`bg-gray-800 rounded-xl border p-5 space-y-4 ${error ? 'border-red-600' : 'border-gray-700'}`}>
@@ -258,11 +249,11 @@ export default function RegularDraftPreview({
       })}
 
       <button
-        onClick={handleSave}
-        disabled={saving || validationErrors.size > 0}
-        className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white font-bold rounded-xl text-base"
+        onClick={handleConfirm}
+        disabled={validationErrors.size > 0}
+        className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-bold rounded-xl text-base"
       >
-        {saving ? 'Saving…' : 'Save Preview'}
+        Confirm Allocation →
       </button>
     </div>
   );
