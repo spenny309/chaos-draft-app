@@ -194,7 +194,7 @@ export default function TournamentView({ draft, isAdmin, currentUserId }: Tourna
         </button>
       )}
 
-      {tournament.status !== 'finalized' && tournament.currentRound >= tournament.totalRounds && !pendingPairings && allCurrentComplete && (
+      {tournament.status === 'active' && tournament.currentRound >= tournament.totalRounds && !pendingPairings && allCurrentComplete && (
         <p className="text-center text-gray-400 text-sm">All rounds complete. Finalize the tournament when ready.</p>
       )}
     </div>
