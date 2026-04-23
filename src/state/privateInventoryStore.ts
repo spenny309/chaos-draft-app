@@ -23,6 +23,7 @@ interface PrivateInventoryStore {
   updateCount: (id: string, count: number) => Promise<void>;
   deleteItem: (id: string) => Promise<void>;
   batchDeduct: (allocation: DraftAllocationEntry[]) => Promise<void>;
+  batchRestore: (allocation: DraftAllocationEntry[]) => Promise<void>;
 }
 
 export const usePrivateInventoryStore = create<PrivateInventoryStore>((set, get) => ({
@@ -142,6 +143,49 @@ export const usePrivateInventoryStore = create<PrivateInventoryStore>((set, get)
         }
       }
       // Writes second
+      for (const { ref, newCount } of updates) {
+        transaction.update(ref, { count: newCount });
+      }
+    });
+
+    await get().loadMyInventory();
+    await get().loadAllInventory();
+  },
+
+  batchRestore: async (allocation) => {
+    const additions = new Map<string, { userId: string; catalogId: string; count: number }>();
+    for (const entry of allocation) {
+      const key = `${entry.userId}::${entry.catalogId}`;
+      const existing = additions.get(key);
+      if (existing) {
+        existing.count += entry.count;
+      } else {
+        additions.set(key, { userId: entry.userId, catalogId: entry.catalogId, count: entry.count });
+      }
+    }
+
+    const docRefs: { ref: ReturnType<typeof doc>; count: number }[] = [];
+    for (const { userId, catalogId, count } of additions.values()) {
+      const snap = await getDocs(
+        query(
+          collection(db, 'privateInventory'),
+          where('ownerId', '==', userId),
+          where('catalogId', '==', catalogId)
+        )
+      );
+      if (!snap.empty) {
+        docRefs.push({ ref: snap.docs[0].ref, count });
+      }
+    }
+
+    await runTransaction(db, async (transaction) => {
+      const updates: { ref: ReturnType<typeof doc>; newCount: number }[] = [];
+      for (const { ref, count } of docRefs) {
+        const snap = await transaction.get(ref);
+        if (snap.exists()) {
+          updates.push({ ref, newCount: (snap.data().count as number) + count });
+        }
+      }
       for (const { ref, newCount } of updates) {
         transaction.update(ref, { count: newCount });
       }

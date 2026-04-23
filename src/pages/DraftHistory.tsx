@@ -238,15 +238,13 @@ export default function DraftHistory() {
   };
 
   const handleDelete = (draft: Draft) => {
-    if (
-      !window.confirm(
-        draft.type === 'chaos'
-          ? "Are you sure you want to delete this draft?\nAll packs from this draft will be added back to the 'Available' inventory."
-          : "Are you sure you want to delete this draft?"
-      )
-    ) {
-      return;
+    let message = "Are you sure you want to delete this draft?";
+    if (draft.type === 'chaos') {
+      message = "Are you sure you want to delete this draft?\nAll packs from this draft will be added back to the 'Available' inventory.";
+    } else if (draft.status === 'finalized' && draft.allocation?.length) {
+      message = "Are you sure you want to delete this draft?\nAll deducted packs will be returned to each player's private inventory.";
     }
+    if (!window.confirm(message)) return;
     deleteDraft(draft.id);
   };
 
@@ -476,7 +474,7 @@ export default function DraftHistory() {
                         onClick={() => handleDelete(draft)}
                         className="bg-red-700 hover:bg-red-800 text-white px-5 py-3 rounded-lg font-semibold disabled:bg-gray-600 transition-colors"
                       >
-                        Delete Draft{draft.type === 'chaos' ? ' & Revert Inventory' : ''}
+                        Delete Draft{(draft.type === 'chaos' || (draft.status === 'finalized' && draft.allocation?.length)) ? ' & Revert Inventory' : ''}
                       </button>
                     </div>
                   </div>

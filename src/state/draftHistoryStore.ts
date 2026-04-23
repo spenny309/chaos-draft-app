@@ -13,6 +13,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { useInventoryStore } from './inventoryStore';
+import { usePrivateInventoryStore } from './privateInventoryStore';
 import type { Draft, PairingResult, TournamentPairing, TournamentRound } from '../types';
 
 interface DraftHistoryState {
@@ -96,8 +97,9 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
 
       useInventoryStore.getState().loadPacks();
     } else {
-      // For regular drafts (preview or finalized), just delete the record
-      // Note: finalized regular drafts do NOT revert inventory on delete
+      if (draftDoc.status === 'finalized' && draftDoc.allocation?.length) {
+        await usePrivateInventoryStore.getState().batchRestore(draftDoc.allocation);
+      }
       await runTransaction(db, async (transaction) => {
         const draftDocRef = doc(db, 'drafts', draftId);
         const snap = await transaction.get(draftDocRef);
