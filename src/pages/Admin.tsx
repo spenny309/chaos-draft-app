@@ -5,8 +5,7 @@ import { db } from '../firebase';
 import {
   collection,
   getDocs,
-  addDoc,
-  serverTimestamp,
+  doc,
   writeBatch,
 } from 'firebase/firestore';
 import type { UserProfile } from '../types';
@@ -142,72 +141,16 @@ function PackCatalogManagement() {
     const log: string[] = [];
 
     try {
-      // Step 1: Read all existing chaos packs
-      const packsSnap = await getDocs(collection(db, 'packs'));
-      const existingPacks = packsSnap.docs;
-      log.push(`Found ${existingPacks.length} chaos packs.`);
-
-      // Step 2: Seed packCatalog (deduplicate by name)
-      const catalogMap = new Map<string, string>(); // name → catalogId
-      const existingCatalogSnap = await getDocs(collection(db, 'packCatalog'));
-      existingCatalogSnap.docs.forEach(d => {
-        catalogMap.set((d.data().name as string).toLowerCase(), d.id);
-      });
-
-      for (const packDoc of existingPacks) {
-        const packData = packDoc.data();
-        const nameLower = (packData.name as string).toLowerCase();
-        if (!catalogMap.has(nameLower)) {
-          const ref = await addDoc(collection(db, 'packCatalog'), {
-            name: packData.name,
-            imageUrl: packData.imageUrl,
-            createdAt: serverTimestamp(),
-          });
-          catalogMap.set(nameLower, ref.id);
-          log.push(`Created catalog entry: ${packData.name}`);
-        }
+      // Seed publicProfiles from users (name only — no email exposed)
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const profileBatch = writeBatch(db);
+      for (const userDoc of usersSnap.docs) {
+        const profileRef = doc(db, 'publicProfiles', userDoc.id);
+        profileBatch.set(profileRef, { name: userDoc.data().name }, { merge: true });
       }
-
-      // Step 3: Add catalogId to each packs document
-      const batch = writeBatch(db);
-      for (const packDoc of existingPacks) {
-        const packData = packDoc.data();
-        if (!packData.catalogId) {
-          const catalogId = catalogMap.get((packData.name as string).toLowerCase());
-          if (catalogId) {
-            batch.update(packDoc.ref, { catalogId });
-          }
-        }
-      }
-      await batch.commit();
-      log.push('Updated chaos packs with catalogId references.');
-
-      // Step 4: Update existing drafts with unified schema fields
-      const draftsSnap = await getDocs(collection(db, 'drafts'));
-      const draftBatch = writeBatch(db);
-      for (const draftDoc of draftsSnap.docs) {
-        const data = draftDoc.data();
-        const updates: Record<string, unknown> = {};
-        if (!data.type) updates.type = 'chaos';
-        if (!data.status) updates.status = 'finalized';
-        if (!data.createdBy && data.userId) updates.createdBy = data.userId;
-        if (data.completedAt && !data.createdAt) updates.createdAt = data.completedAt;
-        // Migrate players array to include userId: null
-        if (Array.isArray(data.players)) {
-          updates.players = data.players.map((p: Record<string, unknown>) => ({
-            id: p.id,
-            name: p.name,
-            userId: p.userId ?? null,
-            packs: p.packs ?? [],
-          }));
-        }
-        if (Object.keys(updates).length > 0) draftBatch.update(draftDoc.ref, updates);
-      }
-      await draftBatch.commit();
-      log.push(`Migrated ${draftsSnap.docs.length} draft records.`);
-
-      // Step 5: Create users document for admin if missing
-      log.push('Migration complete. Note: create your users document via the app login if not already done.');
+      await profileBatch.commit();
+      log.push(`Seeded publicProfiles for ${usersSnap.docs.length} user(s).`);
+      log.push('Migration complete.');
 
       setMigrationLog(log);
       setMigrationStatus('done');
@@ -225,7 +168,7 @@ function PackCatalogManagement() {
       <div className="bg-gray-800 rounded-xl p-5 border border-yellow-700 space-y-3">
         <h2 className="text-lg font-semibold text-yellow-400">One-Time Migration</h2>
         <p className="text-gray-300 text-sm">
-          Seeds packCatalog from existing chaos packs, adds catalogId references, and updates draft records to the unified schema. Safe to run only once.
+          Seeds the publicProfiles collection from existing user accounts (name only, no email). Safe to re-run.
         </p>
         <button
           onClick={runMigration}
