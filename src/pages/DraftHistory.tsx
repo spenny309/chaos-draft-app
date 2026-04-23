@@ -1,11 +1,12 @@
 import { useState, useMemo } from "react";
+import { Link } from 'react-router-dom';
 import { useDraftHistoryStore } from "../state/draftHistoryStore";
 import { useInventoryStore } from "../state/inventoryStore";
 import { useUserStore } from "../state/userStore";
 import { useRegularDraftStore } from "../state/regularDraftStore";
 import { usePrivateInventoryStore } from "../state/privateInventoryStore";
 import type { Draft, DraftPackRef, DraftPlayer } from "../types";
-import TournamentView from '../components/TournamentView';
+import { computeStandings } from '../utils/swissPairings';
 
 const typeBadgeColors: Record<string, string> = {
   chaos: 'bg-purple-700 text-purple-200',
@@ -207,6 +208,63 @@ function LinkPlayersSection({ draft, publicProfiles, linkDraftPlayers }: LinkPla
   );
 }
 
+function TournamentWidget({ draft }: { draft: Draft }) {
+  const t = draft.tournament!;
+  const isFinalized = t.status === 'finalized';
+
+  let winnerName: string | null = null;
+  if (isFinalized) {
+    const standings = computeStandings(draft.players, t.rounds);
+    winnerName = draft.players.find(p => p.id === standings[0]?.playerId)?.name ?? null;
+  }
+
+  const matchesComplete = t.rounds
+    .flatMap(r => r.pairings)
+    .filter(p => p.status === 'complete' && p.player2Id !== null).length;
+
+  return (
+    <div className="mt-6 pt-6 border-t border-gray-700/50">
+      <div className={`flex items-center gap-4 bg-gray-900/60 border rounded-xl p-4 ${
+        isFinalized ? 'border-green-700/30' : 'border-blue-700/30'
+      }`}>
+        <span className="text-xl">🏆</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-gray-200">
+              {isFinalized ? 'Tournament complete' : 'Tournament in progress'}
+            </span>
+            {isFinalized ? (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-900/30 text-green-400 border border-green-700/30">
+                Finalized
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-400 border border-blue-700/40">
+                Round {t.currentRound} of {t.totalRounds}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {isFinalized && winnerName
+              ? `Winner: ${winnerName}`
+              : `${matchesComplete} matches complete`
+            }
+          </p>
+        </div>
+        <Link
+          to={`/tournament?draft=${draft.id}`}
+          className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+            isFinalized
+              ? 'bg-green-900/20 text-green-400 border-green-700/30 hover:bg-green-900/40'
+              : 'bg-blue-900/40 text-blue-300 border-blue-700/30 hover:bg-blue-900/60'
+          }`}
+        >
+          {isFinalized ? 'View Results →' : 'View Tournament →'}
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export default function DraftHistory() {
   const { drafts, loading, error, deleteDraft, markRestockComplete, loadDrafts, linkDraftPlayers } =
     useDraftHistoryStore();
@@ -371,14 +429,14 @@ export default function DraftHistory() {
                 {expandedDraftId === draft.id && (
                   <div className="mt-6 pt-6 border-t border-gray-700 animate-in fade-in duration-500">
                     <div className="mb-4">
-                      <span className="text-sm text-gray-400 uppercase tracking-wide font-semibold">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2 block">
                         Players
                       </span>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {draft.players.map((player) => (
                           <span
                             key={player.id}
-                            className="bg-gray-700 text-gray-200 px-3 py-1 rounded-full text-sm"
+                            className="bg-gray-800 border border-gray-700 text-gray-300 px-3 py-1 rounded-full text-sm"
                           >
                             {player.name}
                           </span>
@@ -388,7 +446,7 @@ export default function DraftHistory() {
 
                     {draft.type === 'chaos' && draft.packsSelectedOrder && (
                       <div className="mb-4">
-                        <span className="text-sm text-gray-400 uppercase tracking-wide font-semibold">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2 block">
                           Packs Drafted
                         </span>
                         <div className="mt-2 flex flex-wrap gap-3">
@@ -412,7 +470,7 @@ export default function DraftHistory() {
 
                     {draft.type !== 'chaos' && draft.sets && (
                       <div className="space-y-2 mb-4">
-                        <p className="text-gray-400 text-sm font-medium">Sets:</p>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">Sets</p>
                         {draft.sets.map(s => (
                           <div key={s.catalogId} className="flex items-center gap-2 text-sm text-gray-300">
                             <img src={s.imageUrl} alt={s.name} className="w-5 h-6 object-cover rounded" />
@@ -462,11 +520,7 @@ export default function DraftHistory() {
                     )}
 
                     {draft.tournament && (
-                      <TournamentView
-                        draft={draft}
-                        isAdmin={profile?.role === 'admin'}
-                        currentUserId={profile?.uid}
-                      />
+                      <TournamentWidget draft={draft} />
                     )}
 
                     <div className="mt-6 pt-6 border-t border-gray-700/50 text-right">
