@@ -10,9 +10,10 @@ import {
   updateDoc,
   addDoc,
   serverTimestamp,
+  Timestamp,
 } from 'firebase/firestore';
 import { useInventoryStore } from './inventoryStore';
-import type { Draft } from '../types';
+import type { Draft, PairingResult, TournamentPairing, TournamentRound } from '../types';
 
 interface DraftHistoryState {
   drafts: Draft[];
@@ -25,6 +26,9 @@ interface DraftHistoryState {
   markRestockComplete: (draftId: string) => Promise<void>;
   linkDraftPlayers: (draftId: string, players: Draft['players']) => Promise<void>;
   updateTournament: (draftId: string, tournament: Draft['tournament']) => Promise<void>;
+  submitResult: (draftId: string, roundNumber: number, pairingId: string, result: Omit<PairingResult, 'submittedBy' | 'submittedAt'>) => Promise<void>;
+  addRound: (draftId: string, pairings: TournamentPairing[]) => Promise<void>;
+  finalizeTournament: (draftId: string, userId: string) => Promise<void>;
 }
 
 export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
@@ -123,6 +127,75 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
     await updateDoc(doc(db, 'drafts', draftId), { tournament });
     set(state => ({
       drafts: state.drafts.map(d => d.id === draftId ? { ...d, tournament } : d),
+    }));
+  },
+
+  submitResult: async (draftId, roundNumber, pairingId, result) => {
+    const draft = get().drafts.find(d => d.id === draftId);
+    if (!draft?.tournament) return;
+
+    const fullResult: PairingResult = {
+      ...result,
+      submittedBy: auth.currentUser?.uid ?? '',
+      submittedAt: Timestamp.now(),
+    };
+
+    const updatedTournament = {
+      ...draft.tournament,
+      rounds: draft.tournament.rounds.map(round => {
+        if (round.roundNumber !== roundNumber) return round;
+        const updatedPairings = round.pairings.map(p =>
+          p.id !== pairingId ? p : { ...p, result: fullResult, status: 'complete' as const }
+        );
+        const allComplete = updatedPairings
+          .filter(p => p.player2Id !== null)
+          .every(p => p.status === 'complete');
+        return { ...round, pairings: updatedPairings, status: allComplete ? 'complete' as const : 'active' as const };
+      }),
+    };
+
+    await updateDoc(doc(db, 'drafts', draftId), { tournament: updatedTournament });
+    set(state => ({
+      drafts: state.drafts.map(d => d.id === draftId ? { ...d, tournament: updatedTournament } : d),
+    }));
+  },
+
+  addRound: async (draftId, pairings) => {
+    const draft = get().drafts.find(d => d.id === draftId);
+    if (!draft?.tournament) return;
+
+    const nextRoundNumber = draft.tournament.currentRound + 1;
+    const newRound: TournamentRound = {
+      roundNumber: nextRoundNumber,
+      pairings,
+      status: 'active',
+    };
+    const updatedTournament = {
+      ...draft.tournament,
+      rounds: [...draft.tournament.rounds, newRound],
+      currentRound: nextRoundNumber,
+    };
+
+    await updateDoc(doc(db, 'drafts', draftId), { tournament: updatedTournament });
+    set(state => ({
+      drafts: state.drafts.map(d => d.id === draftId ? { ...d, tournament: updatedTournament } : d),
+    }));
+  },
+
+  finalizeTournament: async (draftId, userId) => {
+    const draft = get().drafts.find(d => d.id === draftId);
+    if (!draft?.tournament) return;
+
+    const updatedTournament = {
+      ...draft.tournament,
+      status: 'finalized' as const,
+      finalizedAt: Timestamp.now(),
+      finalizedBy: userId,
+    };
+
+    await updateDoc(doc(db, 'drafts', draftId), { tournament: updatedTournament });
+    set(state => ({
+      drafts: state.drafts.map(d => d.id === draftId ? { ...d, tournament: updatedTournament } : d),
     }));
   },
 }));
