@@ -21,12 +21,13 @@ export interface Pack {
   inPerson: number;
   inTransit: number;
   ownerId: string; // ID of the user who owns this pack
+  catalogId: string; // reference to packCatalog doc — required after migration
 }
 
 interface InventoryState {
   packs: Pack[];
   loading: boolean;
-  addPack: (pack: Omit<Pack, "id" | "ownerId">) => Promise<void>;
+  addPack: (pack: { catalogId: string; name: string; imageUrl: string; inPerson: number; inTransit: number }) => Promise<void>;
   updatePack: (pack: Pack) => Promise<void>;
   deletePack: (id: string) => Promise<void>;
   loadPacks: () => Promise<void>;
@@ -61,49 +62,34 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
     }
   },
 
-  /**
-   * ✅ UPDATED addPack function with "upsert" logic.
-   * If a pack with the same name exists, it updates the quantity and image.
-   * Otherwise, it creates a new pack.
-   */
   addPack: async (pack) => {
     const userId = auth.currentUser?.uid;
     if (!userId) return;
 
     try {
-      // 1. Check for duplicates (same name, same owner)
       const q = query(
         packsCollectionRef,
-        where("ownerId", "==", userId),
-        where("name", "==", pack.name)
+        where('ownerId', '==', userId),
+        where('catalogId', '==', pack.catalogId)
       );
       const querySnapshot = await getDocs(q);
 
       if (!querySnapshot.empty) {
-        // 2. DUPLICATE FOUND: Update the existing pack
         const existingDoc = querySnapshot.docs[0];
-        const existingPack = existingDoc.data() as Omit<Pack, "id">;
-        const docRef = doc(db, "packs", existingDoc.id);
-
-        await updateDoc(docRef, {
+        const existingPack = existingDoc.data() as Omit<Pack, 'id'>;
+        await updateDoc(doc(db, 'packs', existingDoc.id), {
           inPerson: existingPack.inPerson + pack.inPerson,
           inTransit: existingPack.inTransit + pack.inTransit,
-          imageUrl: pack.imageUrl, // Use the new image URL
+          imageUrl: pack.imageUrl,
+          name: pack.name,
         });
       } else {
-        // 3. NEW PACK: Add it
-        await addDoc(packsCollectionRef, {
-          ...pack,
-          ownerId: userId,
-        });
+        await addDoc(packsCollectionRef, { ...pack, ownerId: userId });
       }
-      
-      // 4. Refresh the state from the DB to show the change
-      await get().loadPacks();
 
+      await get().loadPacks();
     } catch (error) {
-      console.error("Error adding pack: ", error);
-      // IMPORTANT: See note below about this error.
+      console.error('Error adding pack: ', error);
     }
   },
 

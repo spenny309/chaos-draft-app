@@ -3,12 +3,16 @@ import { useNavigate } from "react-router-dom";
 // Assuming state is in src/state
 import { useSessionStore } from "../state/sessionStore";
 import { useInventoryStore } from "../state/inventoryStore";
+import PlayerSearch from '../components/PlayerSearch';
 
 export default function SessionSetup() {
   // ✅ Changed numPlayers state to hold a string
   const [numPlayersInput, setNumPlayersInput] = useState("");
   // ✅ State is still initialized with 4 empty strings based on the default
   const [playerNames, setPlayerNames] = useState<string[]>(["", "", "", ""]);
+  const [playerUserIds, setPlayerUserIds] = useState<(string | null)[]>(
+    Array(4).fill(null)
+  );
   const navigate = useNavigate();
   const initializeSession = useSessionStore((s) => s.initializeSession);
   const packs = useInventoryStore((s) => s.packs);
@@ -31,12 +35,7 @@ export default function SessionSetup() {
       newNames.length = newCount;
     }
     setPlayerNames(newNames);
-  };
-
-  const handlePlayerNameChange = (index: number, name: string) => {
-    const newNames = [...playerNames];
-    newNames[index] = name;
-    setPlayerNames(newNames);
+    setPlayerUserIds(Array(newCount).fill(null));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -50,7 +49,7 @@ export default function SessionSetup() {
       (name, i) => name.trim() || `Player ${i + 1}`
     );
 
-    initializeSession(finalNumPlayers, finalPlayerNames);
+    initializeSession(finalNumPlayers, finalPlayerNames, playerUserIds);
     navigate("/draft");
   };
 
@@ -96,19 +95,22 @@ export default function SessionSetup() {
                 Player Names
               </label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {playerNames.map((name, index) => (
-                  <div key={index}>
+                {playerNames.map((_name, i) => (
+                  <div key={i}>
                     <label className="block text-sm font-medium text-gray-400 mb-1">
-                      Player {index + 1}
+                      Player {i + 1}
                     </label>
-                    <input
-                      type="text"
-                      value={name}
-                      placeholder={`Player ${index + 1}`}
-                      onChange={(e) =>
-                        handlePlayerNameChange(index, e.target.value)
-                      }
-                      className="mt-1 block w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    <PlayerSearch
+                      value={playerNames[i] ?? ''}
+                      onChange={(newName, userId) => {
+                        const names = [...playerNames];
+                        names[i] = newName;
+                        setPlayerNames(names);
+                        const ids = [...playerUserIds];
+                        ids[i] = userId;
+                        setPlayerUserIds(ids);
+                      }}
+                      placeholder={`Player ${i + 1} name…`}
                     />
                   </div>
                 ))}

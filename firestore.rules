@@ -1,0 +1,82 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isApproved() {
+      return isAuthed() && userDoc().status == 'approved';
+    }
+
+    function isAdmin() {
+      return isApproved() && userDoc().role == 'admin';
+    }
+
+    // Users — anyone can create their own; only admin can read all or change status/role
+    match /users/{userId} {
+      allow read: if isAuthed() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAuthed() && request.auth.uid == userId;
+      allow update: if isAdmin()
+        || (isAuthed() && request.auth.uid == userId
+            && !request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['role', 'status']));
+      allow delete: if isAdmin();
+    }
+
+    // Public profiles — name only, no email; any authenticated user can read
+    // Only approved users are in this collection (written/deleted by admin on status change)
+    match /publicProfiles/{userId} {
+      allow read: if isAuthed();
+      allow create, update: if isAdmin()
+        || (isAuthed() && request.auth.uid == userId
+            && request.resource.data.keys().hasOnly(['name']));
+      allow delete: if isAdmin();
+    }
+
+    // Pack catalog — approved users read; admin write
+    match /packCatalog/{packId} {
+      allow read: if isApproved();
+      allow write: if isAdmin();
+    }
+
+    // Chaos inventory — approved users read; admin write
+    match /packs/{packId} {
+      allow read: if isApproved();
+      allow write: if isAdmin();
+    }
+
+    // Private inventory — approved users read all (for Draft Inventory view);
+    // users write only their own
+    match /privateInventory/{itemId} {
+      allow read: if isApproved();
+      allow create, update: if isApproved()
+        && request.resource.data.ownerId == request.auth.uid;
+      allow delete: if isApproved()
+        && resource.data.ownerId == request.auth.uid;
+    }
+
+    // Drafts — approved users read all and create;
+    // only admin can set status to 'finalized'
+    match /drafts/{draftId} {
+      allow read: if isApproved();
+      allow create: if isApproved();
+      allow update: if isApproved() && (
+        isAdmin()
+        || !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['status', 'finalizedAt', 'finalizedBy', 'allocation'])
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Mail — write-only for Firebase Trigger Email extension
+    match /mail/{mailId} {
+      allow create: if isAuthed();
+    }
+  }
+}

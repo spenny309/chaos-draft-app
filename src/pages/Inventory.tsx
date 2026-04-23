@@ -1,11 +1,61 @@
 import { useState, useMemo } from "react";
 // Assuming state is in src/state
 import { useInventoryStore } from "../state/inventoryStore";
+import { useUserStore } from "../state/userStore";
 import { auth } from "../firebase";
-import Papa from "papaparse";
 import { exportInventoryToCSV } from "../utils/exportInventory";
+import PackCatalogSearch from "../components/PackCatalogSearch";
+import type { PackCatalogEntry } from "../types";
+import PrivateInventory from "./PrivateInventory";
+import DraftInventory from "./DraftInventory";
 
 export default function Inventory() {
+  const { profile } = useUserStore();
+  const isAdmin = profile?.role === 'admin';
+  const [inventoryTab, setInventoryTab] = useState<'chaos' | 'draft' | 'private'>(
+    isAdmin ? 'chaos' : 'private'
+  );
+
+  return (
+    <div className="space-y-6 max-w-6xl mx-auto">
+      {/* Inventory type selector */}
+      <div className="flex gap-2 border-b border-gray-700 pb-4">
+        {isAdmin && (
+          <button
+            onClick={() => setInventoryTab('chaos')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              inventoryTab === 'chaos' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            Chaos Inventory
+          </button>
+        )}
+        <button
+          onClick={() => setInventoryTab('draft')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            inventoryTab === 'draft' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700'
+          }`}
+        >
+          Draft Inventory
+        </button>
+        <button
+          onClick={() => setInventoryTab('private')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            inventoryTab === 'private' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700'
+          }`}
+        >
+          Private Inventory
+        </button>
+      </div>
+
+      {inventoryTab === 'draft' && <DraftInventory />}
+      {inventoryTab === 'private' && <PrivateInventory />}
+      {inventoryTab === 'chaos' && isAdmin && <ChaosInventory />}
+    </div>
+  );
+}
+
+function ChaosInventory() {
   const { packs, loading, addPack, updatePack, deletePack, clearAll } =
     useInventoryStore();
 
@@ -13,15 +63,10 @@ export default function Inventory() {
   const [newPackImageUrl, setNewPackImageUrl] = useState("");
   const [newPackInPerson, setNewPackInPerson] = useState("");
   const [newPackInTransit, setNewPackInTransit] = useState("");
+  const [selectedCatalogEntry, setSelectedCatalogEntry] = useState<PackCatalogEntry | null>(null);
 
   const [isAdding, setIsAdding] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-
-  // --- State for Bulk Import ---
-  const [importFile, setImportFile] = useState<File | null>(null);
-  const [isImporting, setIsImporting] = useState(false);
-  const [importError, setImportError] = useState("");
-  const [importSuccess, setImportSuccess] = useState("");
 
   const sortedPacks = useMemo(() => {
     return [...packs].sort((a, b) => {
@@ -55,7 +100,7 @@ export default function Inventory() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPackName.trim() || isAdding || !auth.currentUser) return;
+    if (!newPackName.trim() || isAdding || !auth.currentUser || !selectedCatalogEntry) return;
     const inPerson = Math.max(0, Number(newPackInPerson) || 0);
     const inTransit = Math.max(0, Number(newPackInTransit) || 0);
 
@@ -66,6 +111,7 @@ export default function Inventory() {
 
     setIsAdding(true);
     await addPack({
+      catalogId: selectedCatalogEntry.id,
       name: newPackName,
       imageUrl:
         newPackImageUrl ||
@@ -78,6 +124,7 @@ export default function Inventory() {
     setNewPackImageUrl("");
     setNewPackInPerson("");
     setNewPackInTransit("");
+    setSelectedCatalogEntry(null);
     setIsAdding(false);
   };
 
@@ -86,129 +133,8 @@ export default function Inventory() {
     setShowClearConfirm(false);
   };
 
-  // --- Handlers for Bulk Import ---
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setImportError("");
-    setImportSuccess("");
-    if (e.target.files && e.target.files[0]) {
-      setImportFile(e.target.files[0]);
-    }
-  };
-
-  const handleBulkImport = () => {
-    if (!importFile) {
-      setImportError("Please select a CSV file first.");
-      return;
-    }
-
-    setIsImporting(true);
-    setImportError("");
-    setImportSuccess("");
-
-    Papa.parse(importFile, {
-      header: true,
-      skipEmptyLines: true,
-      complete: async (results) => {
-        try {
-          const mergedPacks = new Map<
-            string,
-            { name: string; inPerson: number; inTransit: number; imageUrl: string }
-          >();
-
-          for (const row of results.data as any[]) {
-            const packName =
-              row["Pack Name"] || row["name"] || row["Name"] || row["Pack"];
-            const imageUrl =
-              row["Image URL"] || row["imageUrl"] || row["Image"] || row["URL"];
-            const quantity =
-              row["Quantity"] || row["qty"] || row["Qty"] || row["Count"];
-            const inPersonQuantity = row["In Person"] || row["inPerson"];
-            const inTransitQuantity = row["In Transit"] || row["inTransit"];
-
-            // --- UPDATED PARSING LOGIC ---
-            // 1. Prioritize "Available" or "In Person" columns.
-            // 2. If they don't exist, fall back to the "Quantity" column for the "Available" value.
-            // 3. "In Transit" is parsed independently.
-            const availableValue = row["Available"] || inPersonQuantity;
-            const parsedInPerson =
-              availableValue !== undefined
-                ? Number(availableValue)
-                : Number(quantity) || 0;
-            const parsedInTransit = Number(inTransitQuantity) || 0;
-
-            if (
-              packName &&
-              typeof packName === "string" &&
-              packName.trim() &&
-              imageUrl &&
-              typeof imageUrl === "string" &&
-              imageUrl.trim() &&
-              (!isNaN(parsedInPerson) || !isNaN(parsedInTransit)) &&
-              (parsedInPerson > 0 || parsedInTransit > 0)
-            ) {
-              const key = packName.trim().toLowerCase();
-              const existing = mergedPacks.get(key);
-
-              if (existing) {
-                existing.inPerson += parsedInPerson;
-                existing.inTransit += parsedInTransit;
-                existing.imageUrl = imageUrl;
-              } else {
-                mergedPacks.set(key, {
-                  name: packName.trim(),
-                  inPerson: parsedInPerson,
-                  inTransit: parsedInTransit,
-                  imageUrl: imageUrl,
-                });
-              }
-            }
-          }
-
-          if (mergedPacks.size === 0) {
-            setImportError(
-              "No valid packs found. Check headers (e.g., 'Pack Name', 'Image URL', 'Available', 'In Transit') and ensure all rows have valid data."
-            );
-            setIsImporting(false);
-            return;
-          }
-
-          const importPromises = Array.from(mergedPacks.values()).map(
-            (pack) =>
-              addPack({
-                name: pack.name,
-                imageUrl: pack.imageUrl,
-                inPerson: pack.inPerson,
-                inTransit: pack.inTransit,
-              })
-          );
-
-          await Promise.all(importPromises);
-
-          setImportSuccess(
-            `Successfully imported ${mergedPacks.size} unique packs.`
-          );
-        } catch (err) {
-          setImportError("An error occurred during import. Check console.");
-          console.error(err);
-        } finally {
-          setIsImporting(false);
-          setImportFile(null);
-          const fileInput = document.getElementById(
-            "csv-upload"
-          ) as HTMLInputElement;
-          if (fileInput) fileInput.value = "";
-        }
-      },
-      error: (err) => {
-        setIsImporting(false);
-        setImportError(err.message);
-      },
-    });
-  };
-
   return (
-    <div className="max-w-6xl mx-auto space-y-8">
+    <div className="space-y-8">
       <h2 className="text-3xl font-bold text-white">📦 Inventory</h2>
 
       {/* --- Inventory Stats --- */}
@@ -243,27 +169,23 @@ export default function Inventory() {
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-300 mb-1">
-              Pack Name
+              Pack
             </label>
-            <input
-              type="text"
-              className="mt-1 block w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={newPackName}
-              onChange={(e) => setNewPackName(e.target.value)}
-              placeholder="e.g., Modern Horizons 3"
+            <PackCatalogSearch
+              onSelect={entry => {
+                setSelectedCatalogEntry(entry);
+                setNewPackName(entry.name);
+                setNewPackImageUrl(entry.imageUrl);
+              }}
+              clearOnSelect={false}
+              placeholder="Search pack catalog to add…"
             />
-          </div>
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-300 mb-1">
-              Image URL
-            </label>
-            <input
-              type="text"
-              className="mt-1 block w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={newPackImageUrl}
-              onChange={(e) => setNewPackImageUrl(e.target.value)}
-              placeholder="https://... image.png"
-            />
+            {selectedCatalogEntry && (
+              <div className="flex items-center gap-2 text-sm text-gray-300 mt-2">
+                <img src={selectedCatalogEntry.imageUrl} className="w-6 h-8 object-cover rounded" alt={selectedCatalogEntry.name} />
+                {selectedCatalogEntry.name}
+              </div>
+            )}
           </div>
           <div className="w-full md:w-24">
             <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -400,54 +322,17 @@ export default function Inventory() {
         ))}
       </div>
 
-      {/* --- Bulk Import Section (MOVED) --- */}
+      {/* --- Data Management Section --- */}
       <div className="p-6 bg-gray-800 rounded-2xl shadow-lg border border-gray-700 space-y-4">
         <h3 className="text-xl font-semibold text-white">Data Management</h3>
-        <p className="text-gray-400 text-sm">
-          Upload a CSV file with columns: "Pack Name", "Image URL",
-          "Available", and "In Transit".
-        </p>
-        <div className="flex flex-col sm:flex-row gap-4">
-          <button
-            onClick={handleBulkImport}
-            disabled={!importFile || isImporting}
-            className="py-3 px-6 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-green-500/30 text-base disabled:bg-gray-500"
-          >
-            {isImporting ? "Importing..." : "Upload & Import"}
-          </button>
-          <input
-            type="file"
-            id="csv-upload"
-            accept=".csv"
-            onChange={handleFileChange}
-            className="flex-1 block w-full text-sm text-gray-400
-                       file:mr-4 file:py-2 file:px-4
-                       file:rounded-lg file:border-0
-                       file:text-sm file:font-semibold
-                       file:bg-gray-700 file:text-blue-300
-                       hover:file:bg-gray-600"
-          />
-        </div>
-        <div className="flex flex-col sm:flex-row gap-4 pt-4 border-t border-gray-700/50">
-          <button
-            onClick={exportInventoryToCSV}
-            className="py-3 px-6 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-purple-500/30 text-base"
-          >
-            Export to CSV
-          </button>
-        </div>
-        {importError && (
-          <p className="text-sm text-red-400 text-center font-medium">
-            {importError}
-          </p>
-        )}
-        {importSuccess && (
-          <p className="text-sm text-green-400 text-center font-medium">
-            {importSuccess}
-          </p>
-        )}
+        <button
+          onClick={exportInventoryToCSV}
+          className="py-3 px-6 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-purple-500/30 text-base"
+        >
+          Export to CSV
+        </button>
       </div>
-      {/* --- End Bulk Import Section --- */}
+      {/* --- End Data Management Section --- */}
 
       {/* --- Clear All Section (MOVED) --- */}
       {packs.length > 0 && (
