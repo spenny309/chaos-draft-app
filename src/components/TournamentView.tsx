@@ -31,24 +31,6 @@ export default function TournamentView({ draft, isAdmin, currentUserId }: Tourna
     ? computeStandings(players, tournament.rounds)
     : [];
 
-  const allResultPairings = tournament.rounds
-    .flatMap(r => r.pairings)
-    .filter(p => p.result != null && p.player2Id !== null);
-
-  const recordMap = new Map(
-    players.map(p => {
-      const wins = allResultPairings.filter(x =>
-        (x.player1Id === p.id && x.result!.matchWinner === 'player1') ||
-        (x.player2Id === p.id && x.result!.matchWinner === 'player2')
-      ).length;
-      const losses = allResultPairings.filter(x =>
-        (x.player1Id === p.id && x.result!.matchWinner === 'player2') ||
-        (x.player2Id === p.id && x.result!.matchWinner === 'player1')
-      ).length;
-      return [p.id, { wins, losses }] as const;
-    })
-  );
-
   const nonByePairings = currentRound?.pairings.filter(p => p.player2Id !== null) ?? [];
   const allCurrentComplete = nonByePairings.length > 0 && nonByePairings.every(p => p.status === 'complete');
 
@@ -127,17 +109,14 @@ export default function TournamentView({ draft, isAdmin, currentUserId }: Tourna
             <span className="text-right">Record</span>
             <span className="text-right">GW</span>
           </div>
-          {standings.map((s, i) => {
-            const rec = recordMap.get(s.playerId);
-            return (
-              <div key={s.playerId} className="grid grid-cols-[24px_1fr_60px_50px] px-4 py-2.5 text-sm border-b border-gray-700/30 last:border-0">
-                <span className="text-gray-600 font-bold text-xs">{i + 1}</span>
-                <span className="text-gray-200 font-semibold">{playerName(s.playerId, players)}</span>
-                <span className="text-gray-400 text-xs text-right">{rec ? `${rec.wins}–${rec.losses}` : '—'}</span>
-                <span className="text-gray-600 text-xs text-right">{s.gameWins}</span>
-              </div>
-            );
-          })}
+          {standings.map((s, i) => (
+            <div key={s.playerId} className="grid grid-cols-[24px_1fr_60px_50px] px-4 py-2.5 text-sm border-b border-gray-700/30 last:border-0">
+              <span className="text-gray-600 font-bold text-xs">{i + 1}</span>
+              <span className="text-gray-200 font-semibold">{playerName(s.playerId, players)}</span>
+              <span className="text-gray-400 text-xs text-right">{`${s.matchWins}–${s.matchLosses}`}</span>
+              <span className="text-gray-600 text-xs text-right">{s.gameWins}</span>
+            </div>
+          ))}
         </div>
       )}
 
