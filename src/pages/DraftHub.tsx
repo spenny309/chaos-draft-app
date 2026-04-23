@@ -62,23 +62,33 @@ export default function DraftHub() {
     setStarting(true);
     setSaveError(null);
     try {
-      const seats = playersToSeats(orderedPlayers);
-      const tournament: DraftTournament = {
-        seats,
-        rounds: [{ roundNumber: 1, pairings: round1Pairings, status: 'active' }],
-        currentRound: 1,
-        totalRounds: 3,
-        status: 'active',
-      };
-
       if (chaosPlayers) {
         const names = orderedPlayers.map((p, i) => p.name || `Player ${i + 1}`);
         const userIds = orderedPlayers.map(p => p.userId);
+
+        // initializeSession assigns IDs player-1..N in seat order.
+        // Remap to those same IDs now so tournament data stays consistent with saved players.
+        const remapped = orderedPlayers.map((p, i) => ({ ...p, id: `player-${i + 1}` }));
+        const tournament: DraftTournament = {
+          seats: playersToSeats(remapped),
+          rounds: [{ roundNumber: 1, pairings: generateRound1Pairings(remapped), status: 'active' }],
+          currentRound: 1,
+          totalRounds: 3,
+          status: 'active',
+        };
+
         initializeSession(orderedPlayers.length, names, userIds);
         setPendingTournament(tournament);
         setStarting(false);
         navigate('/draft');
       } else if (config && pendingAllocation) {
+        const tournament: DraftTournament = {
+          seats: playersToSeats(orderedPlayers),
+          rounds: [{ roundNumber: 1, pairings: round1Pairings, status: 'active' }],
+          currentRound: 1,
+          totalRounds: 3,
+          status: 'active',
+        };
         const draftId = await savePreview(config, previewAllocations, pendingAllocation);
         await updateTournament(draftId, tournament);
         setStep('saved');
