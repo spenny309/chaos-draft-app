@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useDraftHistoryStore } from '../state/draftHistoryStore';
 import ScoreEntry from './ScoreEntry';
-import { generateSwissPairings } from '../utils/swissPairings';
+import { generateSwissPairings, computeStandings } from '../utils/swissPairings';
 import type { Draft, DraftPlayer, TournamentPairing } from '../types';
 
 interface TournamentViewProps {
@@ -26,6 +26,28 @@ export default function TournamentView({ draft, isAdmin, currentUserId }: Tourna
 
   const currentRound = tournament.rounds.find(r => r.roundNumber === tournament.currentRound);
   const pastRounds = tournament.rounds.filter(r => r.roundNumber < tournament.currentRound);
+
+  const standings = tournament.currentRound > 1
+    ? computeStandings(players, tournament.rounds)
+    : [];
+
+  const allResultPairings = tournament.rounds
+    .flatMap(r => r.pairings)
+    .filter(p => p.result != null && p.player2Id !== null);
+
+  const recordMap = new Map(
+    players.map(p => {
+      const wins = allResultPairings.filter(x =>
+        (x.player1Id === p.id && x.result!.matchWinner === 'player1') ||
+        (x.player2Id === p.id && x.result!.matchWinner === 'player2')
+      ).length;
+      const losses = allResultPairings.filter(x =>
+        (x.player1Id === p.id && x.result!.matchWinner === 'player2') ||
+        (x.player2Id === p.id && x.result!.matchWinner === 'player1')
+      ).length;
+      return [p.id, { wins, losses }] as const;
+    })
+  );
 
   const nonByePairings = currentRound?.pairings.filter(p => p.player2Id !== null) ?? [];
   const allCurrentComplete = nonByePairings.length > 0 && nonByePairings.every(p => p.status === 'complete');
@@ -96,6 +118,29 @@ export default function TournamentView({ draft, isAdmin, currentUserId }: Tourna
 
       {error && <p className="text-red-400 text-sm">{error}</p>}
 
+      {/* Standings */}
+      {standings.length > 0 && (
+        <div className="bg-gray-900 border border-gray-700/50 rounded-xl overflow-hidden">
+          <div className="grid grid-cols-[24px_1fr_60px_50px] px-4 py-2.5 bg-gray-800/80 border-b border-gray-700/50 text-[10px] font-bold uppercase tracking-widest text-gray-500">
+            <span>#</span>
+            <span>Player</span>
+            <span className="text-right">Record</span>
+            <span className="text-right">GW</span>
+          </div>
+          {standings.map((s, i) => {
+            const rec = recordMap.get(s.playerId);
+            return (
+              <div key={s.playerId} className="grid grid-cols-[24px_1fr_60px_50px] px-4 py-2.5 text-sm border-b border-gray-700/30 last:border-0">
+                <span className="text-gray-600 font-bold text-xs">{i + 1}</span>
+                <span className="text-gray-200 font-semibold">{playerName(s.playerId, players)}</span>
+                <span className="text-gray-400 text-xs text-right">{rec ? `${rec.wins}–${rec.losses}` : '—'}</span>
+                <span className="text-gray-600 text-xs text-right">{s.gameWins}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Past rounds summary */}
       {pastRounds.map(round => (
         <div key={round.roundNumber} className="space-y-2">
@@ -107,13 +152,17 @@ export default function TournamentView({ draft, isAdmin, currentUserId }: Tourna
                   🎟️ Bye — {playerName(pairing.player1Id, players)}
                 </div>
               ) : (
-                <ScoreEntry
-                  pairing={pairing}
-                  players={players}
-                  onSubmit={async result => {
-                    await submitResult(draft.id, round.roundNumber, pairing.id, result);
-                  }}
-                />
+                <div className="flex items-center text-sm bg-gray-800/50 border border-gray-700/30 rounded-lg px-3 py-2">
+                  <span className={`font-semibold flex-1 ${pairing.result?.matchWinner === 'player1' ? 'text-white' : 'text-gray-500'}`}>
+                    {playerName(pairing.player1Id, players)}
+                  </span>
+                  <span className="text-gray-600 text-xs font-mono px-3">
+                    {pairing.result ? `${pairing.result.player1Wins} – ${pairing.result.player2Wins}` : '? – ?'}
+                  </span>
+                  <span className={`font-semibold flex-1 text-right ${pairing.result?.matchWinner === 'player2' ? 'text-white' : 'text-gray-500'}`}>
+                    {playerName(pairing.player2Id, players)}
+                  </span>
+                </div>
               )}
             </div>
           ))}
