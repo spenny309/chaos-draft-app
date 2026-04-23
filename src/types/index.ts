@@ -60,6 +60,47 @@ export interface DraftAllocationEntry {
   count: number;
 }
 
+export type TournamentStatus = 'seating' | 'active' | 'finalized';
+
+export interface DraftSeat {
+  playerId: string;
+  seat: number;
+}
+
+export interface PairingResult {
+  player1Wins: number;
+  player2Wins: number;
+  ties: number;
+  matchWinner: 'player1' | 'player2' | 'tie';
+  isPartial: boolean;
+  submittedBy: string;
+  submittedAt: Timestamp;
+}
+
+export interface TournamentPairing {
+  id: string;
+  player1Id: string;
+  player2Id: string | null;
+  result?: PairingResult;
+  status: 'pending' | 'complete';
+}
+
+export interface TournamentRound {
+  roundNumber: number;
+  pairings: TournamentPairing[];
+  status: 'active' | 'complete';
+}
+
+export interface DraftTournament {
+  seats: DraftSeat[];
+  rounds: TournamentRound[];
+  currentRound: number;
+  totalRounds: number;
+  status: TournamentStatus;
+  finalizedAt?: Timestamp;
+  finalizedBy?: string;
+}
+
 export interface Draft {
   id: string;
   type: DraftType;
@@ -77,6 +118,8 @@ export interface Draft {
   finalizedAt?: Timestamp | null;
   finalizedBy?: string | null;
   allocation?: DraftAllocationEntry[];
+  // Tournament
+  tournament?: DraftTournament;
 }
 
 export type DraftFormat = 'Regular Draft' | 'Mobius Draft' | 'Sealed' | 'Team Sealed';
