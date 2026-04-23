@@ -28,6 +28,13 @@ service cloud.firestore {
                 .hasAny(['role', 'status']));
     }
 
+    // Public profiles — name only, no email; any authenticated user can read
+    match /publicProfiles/{userId} {
+      allow read: if isAuthed();
+      allow create, update: if isAuthed() && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['name']);
+    }
+
     // Pack catalog — approved users read; admin write
     match /packCatalog/{packId} {
       allow read: if isApproved();
