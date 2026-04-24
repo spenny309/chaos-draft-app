@@ -8,12 +8,14 @@ import {
 
 export default function Stats() {
   const drafts = useDraftHistoryStore(s => s.drafts);
+  const loading = useDraftHistoryStore(s => s.loading);
+  const error = useDraftHistoryStore(s => s.error);
   const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
   const [h2hNameA, setH2hNameA] = useState('');
   const [h2hNameB, setH2hNameB] = useState('');
 
   const aggregates = useMemo(() => computePlayerAggregates(drafts), [drafts]);
-  const playerNames = aggregates.map(a => a.displayName);
+  const playerNames = useMemo(() => aggregates.map(a => a.displayName), [aggregates]);
 
   const expandedHistory = useMemo(
     () => expandedPlayer ? computePlayerDraftHistory(expandedPlayer, drafts) : [],
@@ -24,6 +26,21 @@ export default function Stats() {
     if (!h2hNameA || !h2hNameB) return null;
     return computeHeadToHead(h2hNameA, h2hNameB, drafts);
   }, [h2hNameA, h2hNameB, drafts]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <p className="text-gray-400 text-sm">Loading…</p>
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <p className="text-red-400 text-sm">{error}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
