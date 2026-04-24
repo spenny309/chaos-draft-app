@@ -1,7 +1,5 @@
 import { useState, useMemo } from "react";
 import { Link } from 'react-router-dom';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '../firebase';
 import { useDraftHistoryStore } from "../state/draftHistoryStore";
 import { useInventoryStore } from "../state/inventoryStore";
 import { useUserStore } from "../state/userStore";
@@ -297,37 +295,6 @@ export default function DraftHistory() {
   const [selectedPack, setSelectedPack] = useState<DraftPackRef | null>(null);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [finalizing, setFinalizing] = useState<string | null>(null);
-  const [fixingPackOrder, setFixingPackOrder] = useState<string | null>(null);
-
-  const handleFixPackOrder = async (draft: Draft) => {
-    if (!draft.packsSelectedOrder || draft.players.length === 0) return;
-    const numPlayers = draft.players.length;
-    const total = draft.packsSelectedOrder.length;
-    if (total % numPlayers !== 0) {
-      alert('Pack count is not evenly divisible by player count — cannot convert.');
-      return;
-    }
-    if (!window.confirm(
-      `Convert pack order for this draft from block format (all P1 picks, then all P2 picks…) to round-robin (P1, P2, P3… repeating)?\n\nThis cannot be undone.`
-    )) return;
-    setFixingPackOrder(draft.id);
-    try {
-      const packsPerPlayer = total / numPlayers;
-      const reordered = Array.from({ length: total }, (_, i) => {
-        const round = Math.floor(i / numPlayers);
-        const player = i % numPlayers;
-        return draft.packsSelectedOrder![player * packsPerPlayer + round];
-      });
-      await updateDoc(doc(db, 'drafts', draft.id), { packsSelectedOrder: reordered });
-      await loadDrafts();
-    } catch (err) {
-      console.error('Failed to fix pack order:', err);
-      alert('Failed to update. Check the console.');
-    } finally {
-      setFixingPackOrder(null);
-    }
-  };
-
   const inventoryMap = useMemo(() => {
     if (inventoryLoading) return new Map<string, number>();
     return new Map(inventoryPacks.map((p) => [p.id, p.inPerson]));
@@ -582,18 +549,6 @@ export default function DraftHistory() {
                         publicProfiles={publicProfiles}
                         linkDraftPlayers={linkDraftPlayers}
                       />
-                    )}
-
-                    {profile?.role === 'admin' && draft.type === 'chaos' && draft.packsSelectedOrder && (
-                      <div className="mt-4">
-                        <button
-                          onClick={() => handleFixPackOrder(draft)}
-                          disabled={fixingPackOrder === draft.id}
-                          className="px-3 py-1.5 text-xs font-medium bg-yellow-700/40 hover:bg-yellow-700/60 disabled:opacity-50 text-yellow-300 border border-yellow-700/40 rounded-lg"
-                        >
-                          {fixingPackOrder === draft.id ? 'Converting…' : '🔧 Fix Pack Order (block → round-robin)'}
-                        </button>
-                      </div>
                     )}
 
                     <div className="mt-6 pt-6 border-t border-gray-700/50 text-right">
