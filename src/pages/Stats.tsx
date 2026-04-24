@@ -66,7 +66,11 @@ export default function Stats() {
           <div key={agg.normalizedName}>
             <button
               onClick={() =>
-                setExpandedPlayer(expandedPlayer === agg.normalizedName ? null : agg.normalizedName)
+                setExpandedPlayer(
+                  expandedPlayer !== null && expandedPlayer.trim().toLowerCase() === agg.normalizedName
+                    ? null
+                    : agg.displayName
+                )
               }
               className="w-full grid grid-cols-[24px_1fr_80px_55px_40px_55px] px-4 py-3 text-sm border-b border-gray-700/30 last:border-0 hover:bg-gray-800/40 text-left transition-colors"
             >
@@ -83,7 +87,7 @@ export default function Stats() {
               <span className="text-gray-600 text-xs text-right self-center">{agg.gameWins}</span>
               <span className="text-gray-600 text-xs text-right self-center">{agg.tournamentsPlayed}</span>
             </button>
-            {expandedPlayer === agg.normalizedName && (
+            {expandedPlayer !== null && expandedPlayer.trim().toLowerCase() === agg.normalizedName && (
               <div className="px-4 pb-3 bg-gray-800/20 border-b border-gray-700/30">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 py-2">
                   Draft History
