@@ -160,6 +160,7 @@ interface LinkPlayersSectionProps {
 }
 
 function LinkPlayersSection({ draft, publicProfiles, linkDraftPlayers }: LinkPlayersSectionProps) {
+  const [open, setOpen] = useState(false);
   const [links, setLinks] = useState<Record<string, string | null>>(
     () => Object.fromEntries(draft.players.map(p => [p.id, p.userId]))
   );
@@ -179,31 +180,45 @@ function LinkPlayersSection({ draft, publicProfiles, linkDraftPlayers }: LinkPla
 
   return (
     <div className="mt-6 pt-6 border-t border-gray-700/50">
-      <p className="text-sm text-gray-400 uppercase tracking-wide font-semibold mb-3">Link Players to Accounts</p>
-      <div className="space-y-2">
-        {draft.players.map(player => (
-          <div key={player.id} className="flex items-center gap-3">
-            <span className="text-gray-300 text-sm w-28 truncate">{player.name}</span>
-            <select
-              value={links[player.id] ?? ''}
-              onChange={e => setLinks(prev => ({ ...prev, [player.id]: e.target.value || null }))}
-              className="flex-1 px-3 py-1.5 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="">— Unlinked —</option>
-              {publicProfiles.map(u => (
-                <option key={u.uid} value={u.uid}>{u.name}</option>
-              ))}
-            </select>
-          </div>
-        ))}
-      </div>
       <button
-        onClick={handleSave}
-        disabled={saving || !isDirty}
-        className="mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg"
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-300 font-semibold uppercase tracking-wide"
       >
-        {saving ? 'Saving…' : saved ? 'Saved!' : 'Save Links'}
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className={`h-4 w-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+        Link Players to Accounts
       </button>
+      {open && (
+        <div className="mt-3 space-y-2">
+          {draft.players.map(player => (
+            <div key={player.id} className="flex items-center gap-3">
+              <span className="text-gray-300 text-sm w-28 truncate">{player.name}</span>
+              <select
+                value={links[player.id] ?? ''}
+                onChange={e => setLinks(prev => ({ ...prev, [player.id]: e.target.value || null }))}
+                className="flex-1 px-3 py-1.5 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">— Unlinked —</option>
+                {publicProfiles.map(u => (
+                  <option key={u.uid} value={u.uid}>{u.name}</option>
+                ))}
+              </select>
+            </div>
+          ))}
+          <button
+            onClick={handleSave}
+            disabled={saving || !isDirty}
+            className="mt-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg"
+          >
+            {saving ? 'Saving…' : saved ? 'Saved!' : 'Save Links'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -444,29 +459,43 @@ export default function DraftHistory() {
                       </div>
                     </div>
 
-                    {draft.type === 'chaos' && draft.packsSelectedOrder && (
-                      <div className="mb-4">
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2 block">
-                          Packs Drafted
-                        </span>
-                        <div className="mt-2 flex flex-wrap gap-3">
-                          {draft.packsSelectedOrder.map((pack, idx) => (
-                            <button
-                              key={`${pack.id}-${idx}`}
-                              onClick={() => setSelectedPack(pack)}
-                              className="focus:outline-none focus:ring-2 focus:ring-blue-400 rounded-md"
-                            >
-                              <img
-                                src={pack.imageUrl}
-                                alt={pack.name}
-                                title={pack.name}
-                                className="w-20 h-28 rounded-md object-cover border-2 border-gray-600 transition-all hover:border-blue-400"
-                              />
-                            </button>
-                          ))}
+                    {draft.type === 'chaos' && draft.packsSelectedOrder && (() => {
+                      const numPlayers = draft.players.length;
+                      const byPlayer = draft.players.map((player, pi) => ({
+                        player,
+                        packs: draft.packsSelectedOrder!.filter((_, i) => i % numPlayers === pi),
+                      }));
+                      return (
+                        <div className="mb-4">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 block mb-2">
+                            Packs Drafted
+                          </span>
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            {byPlayer.map(({ player, packs }) => (
+                              <div key={player.id}>
+                                <p className="text-xs font-semibold text-gray-400 mb-2 truncate">{player.name}</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {packs.map((pack, idx) => (
+                                    <button
+                                      key={`${pack.id}-${idx}`}
+                                      onClick={() => setSelectedPack(pack)}
+                                      className="focus:outline-none focus:ring-2 focus:ring-blue-400 rounded-md"
+                                    >
+                                      <img
+                                        src={pack.imageUrl}
+                                        alt={pack.name}
+                                        title={pack.name}
+                                        className="w-20 h-28 rounded-md object-cover border-2 border-gray-600 transition-all hover:border-blue-400"
+                                      />
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     {draft.type !== 'chaos' && draft.sets && (
                       <div className="space-y-2 mb-4">
@@ -511,16 +540,16 @@ export default function DraftHistory() {
                       </button>
                     )}
 
+                    {draft.tournament && (
+                      <TournamentWidget draft={draft} />
+                    )}
+
                     {profile?.role === 'admin' && (
                       <LinkPlayersSection
                         draft={draft}
                         publicProfiles={publicProfiles}
                         linkDraftPlayers={linkDraftPlayers}
                       />
-                    )}
-
-                    {draft.tournament && (
-                      <TournamentWidget draft={draft} />
                     )}
 
                     <div className="mt-6 pt-6 border-t border-gray-700/50 text-right">

@@ -39,7 +39,7 @@ describe('computeStandings', () => {
     const standings = computeStandings([p('A'), p('B')], []);
     expect(standings).toHaveLength(2);
     expect(standings.find(s => s.playerId === 'A')).toEqual({
-      playerId: 'A', matchWins: 0, matchLosses: 0, matchTies: 0, gameWins: 0,
+      playerId: 'A', matchWins: 0, matchLosses: 0, matchTies: 0, gameWins: 0, gameLosses: 0,
     });
   });
 

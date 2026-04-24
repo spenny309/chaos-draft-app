@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from 'react-router-dom';
-// Assuming state is in src/state
 import { useSessionStore } from "../state/sessionStore";
 import { useInventoryStore, type Pack } from "../state/inventoryStore";
-
+import { useDraftHistoryStore } from "../state/draftHistoryStore";
+import RoundMatchups from "../components/RoundMatchups";
+import { generateRound1Pairings, playersToSeats } from "../utils/tournamentPairings";
+import type { DraftTournament } from "../types";
 
 import tickSoundFile from "../assets/tick.mp3";
 import selectedSoundFile from "../assets/selected.mp3";
@@ -148,9 +150,12 @@ export default function Draft() {
     numPacks,
     confirmed,
     undoLastPick,
+    pendingTournament,
+    setPendingTournament,
   } = useSessionStore();
 
   const navigate = useNavigate();
+  const { loadDrafts } = useDraftHistoryStore();
 
   const { loading: inventoryLoading } = useInventoryStore();
 
@@ -165,6 +170,18 @@ export default function Draft() {
   const SPINNER_DURATION_VARIANCE_MS = 4000;
   const SPINNER_TARGET_OFFSET_VARIANCE_PX = 0;
   const bufferPadding = 25; // PARAMETERIZED: packs to keep before/after visible area
+
+  const [showMatchupsModal, setShowMatchupsModal] = useState(false);
+
+  // Generate round 1 pairings once per session (players are in seat order from initializeSession)
+  const round1Pairings = useMemo(
+    () => players.length > 0 ? generateRound1Pairings(players) : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sessionId]
+  );
+
+  // Close the matchups modal if a new session starts
+  useEffect(() => { setShowMatchupsModal(false); }, [sessionId]);
 
   const [buffer, setBuffer] = useState<Pack[]>([]);
   const [spinning, setSpinning] = useState(false);
@@ -447,6 +464,7 @@ export default function Draft() {
       const hadTournament = !!useSessionStore.getState().pendingTournament;
       await confirmSession();
       if (hadTournament) {
+        await loadDrafts();
         navigate('/tournament');
       }
     } catch (error) {
@@ -454,6 +472,18 @@ export default function Draft() {
     } finally {
       setIsConfirming(false);
     }
+  };
+
+  const handleStartRound1 = async () => {
+    const tournament: DraftTournament = {
+      seats: playersToSeats(players),
+      rounds: [{ roundNumber: 1, pairings: round1Pairings, status: 'active' }],
+      currentRound: 1,
+      totalRounds: 3,
+      status: 'active',
+    };
+    setPendingTournament(tournament);
+    await handleConfirm();
   };
 
   const isDraftComplete = packsSelectedOrder.length === numPacks;
@@ -814,6 +844,13 @@ export default function Draft() {
           <div className="px-5 py-3 rounded-lg font-semibold bg-green-800 text-white shadow-lg">
             🎉 Draft Complete!
           </div>
+        ) : isDraftComplete && pendingTournament === null && players.length > 0 ? (
+          <button
+            onClick={() => setShowMatchupsModal(true)}
+            className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-lg font-semibold transition-all"
+          >
+            Set Up Round 1 →
+          </button>
         ) : (
           <button
             onClick={handleConfirm}
@@ -826,6 +863,19 @@ export default function Draft() {
           </button>
         )}
       </div>
+      {/* Matchups modal — appears after all packs are spun */}
+      {showMatchupsModal && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
+          <div className="bg-gray-900 rounded-2xl p-8 shadow-2xl border border-gray-700 max-w-md w-full mx-4">
+            <RoundMatchups
+              players={players}
+              pairings={round1Pairings}
+              onStart={handleStartRound1}
+              disabled={isConfirming}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

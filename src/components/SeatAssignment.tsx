@@ -10,24 +10,16 @@ interface SeatAssignmentProps {
 
 export default function SeatAssignment({ players, onConfirm, onBack }: SeatAssignmentProps) {
   const [ordered, setOrdered] = useState<DraftPlayer[]>(() => shufflePlayers(players));
+  const [dragOver, setDragOver] = useState<number | null>(null);
   const isOdd = ordered.length % 2 !== 0;
 
-  const moveUp = (index: number) => {
-    if (index === 0) return;
+  const swap = (from: number, to: number) => {
     setOrdered(prev => {
       const next = [...prev];
-      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      [next[from], next[to]] = [next[to], next[from]];
       return next;
     });
-  };
-
-  const moveDown = (index: number) => {
-    if (index === ordered.length - 1) return;
-    setOrdered(prev => {
-      const next = [...prev];
-      [next[index], next[index + 1]] = [next[index + 1], next[index]];
-      return next;
-    });
+    setDragOver(null);
   };
 
   return (
@@ -38,18 +30,27 @@ export default function SeatAssignment({ players, onConfirm, onBack }: SeatAssig
       </div>
 
       <p className="text-gray-400 text-sm">
-        Players are randomly seated. Use ▲▼ to reorder.
+        Players are randomly seated. Drag to reorder.
         {isOdd && <span className="text-yellow-400"> The player at the bottom receives a bye in round 1.</span>}
       </p>
 
       <div className="space-y-2">
         {ordered.map((player, i) => {
           const isBye = isOdd && i === ordered.length - 1;
+          const isTarget = dragOver === i;
           return (
             <div
               key={player.id}
-              className={`flex items-center gap-3 rounded-lg px-4 py-3 border ${
-                isBye
+              draggable
+              onDragStart={e => { e.dataTransfer.setData('text/plain', String(i)); e.dataTransfer.effectAllowed = 'move'; }}
+              onDragOver={e => { e.preventDefault(); setDragOver(i); }}
+              onDragLeave={() => setDragOver(null)}
+              onDrop={e => { e.preventDefault(); swap(Number(e.dataTransfer.getData('text/plain')), i); }}
+              onDragEnd={() => setDragOver(null)}
+              className={`flex items-center gap-3 rounded-lg px-4 py-3 border cursor-grab active:cursor-grabbing select-none transition-colors ${
+                isTarget
+                  ? 'bg-blue-900/40 border-blue-500'
+                  : isBye
                   ? 'bg-yellow-900/30 border-dashed border-yellow-700'
                   : 'bg-gray-800 border-gray-700'
               }`}
@@ -63,18 +64,6 @@ export default function SeatAssignment({ players, onConfirm, onBack }: SeatAssig
                 {player.name}
                 {isBye && <span className="text-yellow-400 text-xs ml-2">(Bye)</span>}
               </span>
-              <div className="flex flex-col gap-0.5">
-                <button
-                  onClick={() => moveUp(i)}
-                  disabled={i === 0}
-                  className="w-6 h-5 bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-gray-300 rounded text-xs flex items-center justify-center"
-                >▲</button>
-                <button
-                  onClick={() => moveDown(i)}
-                  disabled={i === ordered.length - 1}
-                  className="w-6 h-5 bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-gray-300 rounded text-xs flex items-center justify-center"
-                >▼</button>
-              </div>
             </div>
           );
         })}

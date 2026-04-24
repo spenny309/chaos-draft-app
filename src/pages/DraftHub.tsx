@@ -38,8 +38,8 @@ export default function DraftHub() {
 
   const navigate = useNavigate();
   const { savePreview, previewAllocations } = useRegularDraftStore();
-  const { updateTournament } = useDraftHistoryStore();
-  const { initializeSession, setPendingTournament } = useSessionStore();
+  const { updateTournament, loadDrafts } = useDraftHistoryStore();
+  const { initializeSession } = useSessionStore();
 
   const handleStartChaos = (players: DraftPlayer[]) => {
     setChaosPlayers(players);
@@ -53,46 +53,33 @@ export default function DraftHub() {
 
   const handleSeatingConfirmed = (ordered: DraftPlayer[]) => {
     setOrderedPlayers(ordered);
-    setRound1Pairings(generateRound1Pairings(ordered));
-    setStep('matchups');
+    if (chaosPlayers) {
+      const names = ordered.map((p, i) => p.name || `Player ${i + 1}`);
+      const userIds = ordered.map(p => p.userId);
+      initializeSession(ordered.length, names, userIds);
+      navigate('/draft');
+    } else {
+      setRound1Pairings(generateRound1Pairings(ordered));
+      setStep('matchups');
+    }
   };
 
   const handleStartRound1 = async () => {
-    if (!orderedPlayers || !round1Pairings) return;
+    if (!orderedPlayers || !round1Pairings || !config || !pendingAllocation) return;
     setStarting(true);
     setSaveError(null);
     try {
-      if (chaosPlayers) {
-        const names = orderedPlayers.map((p, i) => p.name || `Player ${i + 1}`);
-        const userIds = orderedPlayers.map(p => p.userId);
-
-        // initializeSession assigns IDs player-1..N in seat order.
-        // Remap to those same IDs now so tournament data stays consistent with saved players.
-        const remapped = orderedPlayers.map((p, i) => ({ ...p, id: `player-${i + 1}` }));
-        const tournament: DraftTournament = {
-          seats: playersToSeats(remapped),
-          rounds: [{ roundNumber: 1, pairings: generateRound1Pairings(remapped), status: 'active' }],
-          currentRound: 1,
-          totalRounds: 3,
-          status: 'active',
-        };
-
-        initializeSession(orderedPlayers.length, names, userIds);
-        setPendingTournament(tournament);
-        setStarting(false);
-        navigate('/draft');
-      } else if (config && pendingAllocation) {
-        const tournament: DraftTournament = {
-          seats: playersToSeats(orderedPlayers),
-          rounds: [{ roundNumber: 1, pairings: round1Pairings, status: 'active' }],
-          currentRound: 1,
-          totalRounds: 3,
-          status: 'active',
-        };
-        const draftId = await savePreview(config, previewAllocations, pendingAllocation);
-        await updateTournament(draftId, tournament);
-        navigate('/tournament');
-      }
+      const tournament: DraftTournament = {
+        seats: playersToSeats(orderedPlayers),
+        rounds: [{ roundNumber: 1, pairings: round1Pairings, status: 'active' }],
+        currentRound: 1,
+        totalRounds: 3,
+        status: 'active',
+      };
+      const draftId = await savePreview(config, previewAllocations, pendingAllocation);
+      await updateTournament(draftId, tournament);
+      await loadDrafts();
+      navigate('/tournament');
     } catch (err) {
       console.error('Failed to start round 1:', err);
       setSaveError('Failed to save. Please try again.');

@@ -61,37 +61,34 @@ export default function ScoreEntry({ pairing, players, onSubmit }: ScoreEntryPro
 
   return (
     <div className="bg-gray-700/50 rounded-lg p-3 space-y-3">
-      <div className="grid grid-cols-3 gap-2 text-sm">
-        <div className="space-y-1">
-          <p className="text-gray-300 truncate" title={p1Name}>{p1Name}</p>
-          <input
-            type="number"
-            min="0"
-            value={p1Wins}
-            onChange={e => setP1Wins(Math.max(0, parseInt(e.target.value) || 0))}
-            className="w-full px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-        <div className="space-y-1 text-center">
-          <p className="text-gray-500 text-xs">Ties</p>
-          <input
-            type="number"
-            min="0"
-            value={ties}
-            onChange={e => setTies(Math.max(0, parseInt(e.target.value) || 0))}
-            className="w-full px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-        <div className="space-y-1 text-right">
-          <p className="text-gray-300 truncate" title={p2Name}>{p2Name}</p>
-          <input
-            type="number"
-            min="0"
-            value={p2Wins}
-            onChange={e => setP2Wins(Math.max(0, parseInt(e.target.value) || 0))}
-            className="w-full px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
+      <div className="grid grid-cols-3 gap-x-2 gap-y-1 text-sm">
+        <p className="text-gray-300 truncate" title={p1Name}>{p1Name}</p>
+        <p className="text-gray-300 text-sm text-center">Ties</p>
+        <p className="text-gray-300 truncate text-right" title={p2Name}>{p2Name}</p>
+        <input
+          type="number"
+          min="0"
+          value={p1Wins || ''}
+          placeholder="0"
+          onChange={e => setP1Wins(Math.max(0, parseInt(e.target.value) || 0))}
+          className="w-full px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white placeholder-gray-500 text-center focus:outline-none focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        />
+        <input
+          type="number"
+          min="0"
+          value={ties || ''}
+          placeholder="0"
+          onChange={e => setTies(Math.max(0, parseInt(e.target.value) || 0))}
+          className="w-full px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white placeholder-gray-500 text-center focus:outline-none focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        />
+        <input
+          type="number"
+          min="0"
+          value={p2Wins || ''}
+          placeholder="0"
+          onChange={e => setP2Wins(Math.max(0, parseInt(e.target.value) || 0))}
+          className="w-full px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white placeholder-gray-500 text-center focus:outline-none focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        />
       </div>
       <div className="flex items-center justify-between">
         <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">

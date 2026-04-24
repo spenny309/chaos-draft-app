@@ -6,6 +6,24 @@ export interface PlayerStanding {
   matchLosses: number;
   matchTies: number;
   gameWins: number;
+  gameLosses: number;
+}
+
+function headToHead(aId: string, bId: string, rounds: TournamentRound[]): number {
+  for (const round of rounds) {
+    for (const p of round.pairings) {
+      if (p.player2Id === null || !p.result) continue;
+      if (p.player1Id === aId && p.player2Id === bId) {
+        if (p.result.matchWinner === 'player1') return -1;
+        if (p.result.matchWinner === 'player2') return 1;
+      }
+      if (p.player1Id === bId && p.player2Id === aId) {
+        if (p.result.matchWinner === 'player1') return 1;
+        if (p.result.matchWinner === 'player2') return -1;
+      }
+    }
+  }
+  return 0;
 }
 
 export function computeStandings(
@@ -13,7 +31,7 @@ export function computeStandings(
   completedRounds: TournamentRound[]
 ): PlayerStanding[] {
   const standings = new Map<string, PlayerStanding>(
-    players.map(p => [p.id, { playerId: p.id, matchWins: 0, matchLosses: 0, matchTies: 0, gameWins: 0 }])
+    players.map(p => [p.id, { playerId: p.id, matchWins: 0, matchLosses: 0, matchTies: 0, gameWins: 0, gameLosses: 0 }])
   );
 
   for (const round of completedRounds) {
@@ -24,14 +42,21 @@ export function computeStandings(
       const s2 = standings.get(pairing.player2Id);
       if (!s1 || !s2) continue;
       s1.gameWins += player1Wins;
+      s1.gameLosses += player2Wins;
       s2.gameWins += player2Wins;
+      s2.gameLosses += player1Wins;
       if (matchWinner === 'player1') { s1.matchWins++; s2.matchLosses++; }
       else if (matchWinner === 'player2') { s2.matchWins++; s1.matchLosses++; }
       else { s1.matchTies++; s2.matchTies++; }
     }
   }
 
-  return [...standings.values()];
+  return [...standings.values()].sort((a, b) => {
+    if (b.matchWins !== a.matchWins) return b.matchWins - a.matchWins;
+    const h2h = headToHead(a.playerId, b.playerId, completedRounds);
+    if (h2h !== 0) return h2h;
+    return a.gameLosses - b.gameLosses;
+  });
 }
 
 export function generateSwissPairings(
