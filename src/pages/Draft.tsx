@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useNavigate } from 'react-router-dom';
 // Assuming state is in src/state
 import { useSessionStore } from "../state/sessionStore";
 import { useInventoryStore, type Pack } from "../state/inventoryStore";
@@ -148,6 +149,8 @@ export default function Draft() {
     confirmed,
     undoLastPick,
   } = useSessionStore();
+
+  const navigate = useNavigate();
 
   const { loading: inventoryLoading } = useInventoryStore();
 
@@ -441,7 +444,11 @@ export default function Draft() {
   const handleConfirm = async () => {
     setIsConfirming(true);
     try {
+      const hadTournament = !!useSessionStore.getState().pendingTournament;
       await confirmSession();
+      if (hadTournament) {
+        navigate('/tournament');
+      }
     } catch (error) {
       console.error("Error saving draft:", error);
     } finally {
