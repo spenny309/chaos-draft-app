@@ -88,15 +88,6 @@ export default function DraftHub() {
     }
   };
 
-  const handleStartOver = () => {
-    setStep('setup');
-    setConfig(null);
-    setChaosPlayers(null);
-    setPendingAllocation(null);
-    setOrderedPlayers(null);
-    setRound1Pairings(null);
-  };
-
   const activePlayers = chaosPlayers ?? config?.players ?? [];
 
   if (step === 'setup') {
