@@ -22,6 +22,7 @@ import Draft from './pages/Draft';
 import DraftHistory from './pages/DraftHistory';
 import Admin from './pages/Admin';
 import Tournament from './pages/Tournament';
+import Stats from './pages/Stats';
 
 const NavLink = ({ to, children }: { to: string; children: React.ReactNode }) => {
   const location = useLocation();
@@ -176,6 +177,7 @@ export default function App() {
             <NavLink to="/">Draft</NavLink>
             <NavLink to="/inventory">Inventory</NavLink>
             <NavLink to="/history">History</NavLink>
+            <NavLink to="/stats">Stats</NavLink>
             {hasActiveTournament && (
               <NavLink to="/tournament">
                 <span className="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1.5 relative -top-px" />
@@ -195,6 +197,7 @@ export default function App() {
             <Route path="/draft" element={<Draft />} />
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/history" element={<DraftHistory />} />
+            <Route path="/stats" element={<Stats />} />
             <Route path="/tournament" element={<Tournament />} />
             {isAdmin && <Route path="/admin" element={<Admin />} />}
             <Route path="*" element={<Navigate to="/" />} />
