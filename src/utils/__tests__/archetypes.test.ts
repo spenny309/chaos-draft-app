@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { sortColors, getArchetypeName, formatArchetype } from '../archetypes';
-import type { MtgColor } from '../../types';
 
 describe('sortColors', () => {
   it('sorts into WUBRG order', () => {
