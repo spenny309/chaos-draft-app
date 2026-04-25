@@ -160,6 +160,26 @@ describe('generateSwissPairings', () => {
     expect(ids.every(id => id.length > 0)).toBe(true);
   });
 
+  it('gives bye to top player who has played everyone, even when lower players are preferred', () => {
+    // Mirrors the real bug: M(2-0) played S(R1) and J(R2). S and J haven't played each other.
+    // D dropped so only 3 active players (odd). Algorithm must give bye to M, pair S vs J.
+    // Bug: algorithm picks J (lowest ranked) for bye, then M vs S is the only pair left → rematch.
+    const active = [p('M'), p('S'), p('J')];
+    const r1 = makeRound(1, [
+      { p1: 'M', p2: 'S', winner: 'player1' },
+      { p1: 'J', p2: 'D', winner: 'player1' },
+    ]);
+    const r2 = makeRound(2, [
+      { p1: 'M', p2: 'J', winner: 'player1' },
+      { p1: 'S', p2: 'D', winner: 'player1' },
+    ]);
+    const pairings = generateSwissPairings(active, [r1, r2]);
+    const byePairing = pairings.find(p => p.player2Id === null);
+    expect(byePairing?.player1Id).toBe('M');
+    const match = pairings.find(p => p.player2Id !== null)!;
+    expect([match.player1Id, match.player2Id].sort().join(':')).toBe('J:S');
+  });
+
   it('forces a rematch when no unplayed opponent exists', () => {
     const players = [p('A'), p('B')];
     const r1 = makeRound(1, [{ p1: 'A', p2: 'B', winner: 'player1' }]);

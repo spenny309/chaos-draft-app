@@ -59,6 +59,19 @@ export function computeStandings(
   });
 }
 
+function canPairWithoutRematch(playerIds: string[], played: Set<string>): boolean {
+  if (playerIds.length === 0) return true;
+  if (playerIds.length % 2 !== 0) return false;
+  const [first, ...rest] = playerIds;
+  for (let i = 0; i < rest.length; i++) {
+    if (!played.has(`${first}:${rest[i]}`)) {
+      const remaining = [...rest.slice(0, i), ...rest.slice(i + 1)];
+      if (canPairWithoutRematch(remaining, played)) return true;
+    }
+  }
+  return false;
+}
+
 export function generateSwissPairings(
   players: DraftPlayer[],
   completedRounds: TournamentRound[]
@@ -94,9 +107,18 @@ export function generateSwissPairings(
 
   if (unpaired.length % 2 === 1) {
     const eligible = unpaired.filter(p => !byeHistory.has(p.id));
-    const byeReceiver = eligible.length > 0
-      ? eligible[eligible.length - 1]
-      : unpaired[unpaired.length - 1];
+    const candidates = eligible.length > 0 ? eligible : unpaired;
+    // Default: lowest-ranked candidate. Try each from lowest to highest; pick the first
+    // whose removal still allows the remaining players to be paired without rematches.
+    let byeReceiver = candidates[candidates.length - 1];
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const candidate = candidates[i];
+      const remaining = unpaired.filter(p => p.id !== candidate.id).map(p => p.id);
+      if (canPairWithoutRematch(remaining, played)) {
+        byeReceiver = candidate;
+        break;
+      }
+    }
     unpaired.splice(unpaired.findIndex(p => p.id === byeReceiver.id), 1);
     byePairing = { id: crypto.randomUUID(), player1Id: byeReceiver.id, player2Id: null, status: 'pending' };
   }
