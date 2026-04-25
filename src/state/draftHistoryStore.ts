@@ -214,7 +214,7 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
     const sortedPrimary = sortColors(primary);
     const sortedSplash = sortColors(splash);
 
-    const updatedPlayers: DraftPlayer[] = draft.players.map(p => {
+    const updatedPlayers: DraftPlayer[] = (draft.players ?? []).map(p => {
       if (p.id !== playerId) return p;
       if (sortedPrimary.length === 0) {
         return { id: p.id, name: p.name, userId: p.userId };
@@ -222,7 +222,7 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
       return {
         ...p,
         primaryColors: sortedPrimary,
-        ...(sortedSplash.length > 0 ? { splashColors: sortedSplash } : {}),
+        splashColors: sortedSplash.length > 0 ? sortedSplash : undefined,
       };
     });
 
