@@ -150,10 +150,9 @@ export default function TournamentView({ draft, isAdmin, currentUserId }: Tourna
       <div className="flex items-center justify-between">
         <h3 className="text-white font-semibold">
           Tournament
-          {isFinalized
-            ? <span className="ml-2 text-xs font-normal text-green-400 bg-green-900/40 px-2 py-0.5 rounded">Finalized</span>
-            : <span className="ml-2 text-xs font-normal text-gray-400">Round {tournament.currentRound} of {tournament.totalRounds}</span>
-          }
+          {!isFinalized && (
+            <span className="ml-2 text-xs font-normal text-gray-400">Round {tournament.currentRound} of {tournament.totalRounds}</span>
+          )}
         </h3>
       </div>
 
