@@ -150,19 +150,22 @@ export default function TournamentView({ draft, isAdmin, currentUserId }: Tourna
             <span className="text-right">Record</span>
             <span className="text-right">GW</span>
           </div>
-          {standings.map((s, i) => (
+          {standings.map((s, i) => {
+            const arch = playerArchetype(s.playerId, players);
+            return (
             <div key={s.playerId} className="grid grid-cols-[24px_1fr_60px_50px] px-4 py-2.5 text-sm border-b border-gray-700/30 last:border-0 items-start">
               <span className="text-gray-600 font-bold text-xs pt-0.5">{i + 1}</span>
               <div>
                 <div className="text-gray-200 font-semibold">{playerName(s.playerId, players)}</div>
-                {playerArchetype(s.playerId, players) && (
-                  <div className="text-xs text-gray-600 mt-0.5">{playerArchetype(s.playerId, players)}</div>
+                {arch && (
+                  <div className="text-xs text-gray-600 mt-0.5">{arch}</div>
                 )}
               </div>
               <span className="text-gray-400 text-xs text-right pt-0.5">{s.matchTies > 0 ? `${s.matchWins} – ${s.matchLosses} – ${s.matchTies}` : `${s.matchWins} – ${s.matchLosses}`}</span>
               <span className="text-gray-600 text-xs text-right pt-0.5">{s.gameWins}</span>
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
 
