@@ -160,6 +160,9 @@ function PlayersWithArchetype({ draft, currentUserId, isAdmin, setPlayerArchetyp
                 <button
                   key={color}
                   onClick={() => cyclePip(color)}
+                  disabled={saving}
+                  aria-label={`${color} — ${pips[color]}`}
+                  title={`${color}: ${pips[color]} (click to cycle)`}
                   className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all
                     ${PIP_STYLE[color]}
                     ${pips[color] === 'off' ? 'opacity-25' : ''}
