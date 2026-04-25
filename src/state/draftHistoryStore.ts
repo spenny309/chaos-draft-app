@@ -219,10 +219,11 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
       if (sortedPrimary.length === 0) {
         return { id: p.id, name: p.name, userId: p.userId };
       }
+      const { splashColors: _old, ...rest } = p;
       return {
-        ...p,
+        ...rest,
         primaryColors: sortedPrimary,
-        splashColors: sortedSplash.length > 0 ? sortedSplash : undefined,
+        ...(sortedSplash.length > 0 ? { splashColors: sortedSplash } : {}),
       };
     });
 
