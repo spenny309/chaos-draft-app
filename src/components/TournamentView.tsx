@@ -129,15 +129,6 @@ export default function TournamentView({ draft, isAdmin, currentUserId }: Tourna
 
   return (
     <div className="mt-6 pt-6 border-t border-gray-700/50 space-y-6">
-      <div className="flex items-center justify-between">
-        <h3 className="text-white font-semibold">
-          Tournament
-          {!isFinalized && (
-            <span className="ml-2 text-xs font-normal text-gray-400">Round {tournament.currentRound} of {tournament.totalRounds}</span>
-          )}
-        </h3>
-      </div>
-
       {error && <p className="text-red-400 text-sm">{error}</p>}
 
       {/* Standings */}
