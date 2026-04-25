@@ -33,10 +33,14 @@ export interface PrivateInventoryItem {
 export type DraftType = 'chaos' | 'regular' | 'mobius' | 'sealed' | 'team-sealed';
 export type DraftStatus = 'preview' | 'finalized';
 
+export type MtgColor = 'W' | 'U' | 'B' | 'R' | 'G';
+
 export interface DraftPlayer {
   id: string;
   name: string;
   userId: string | null;
+  primaryColors?: MtgColor[];
+  splashColors?: MtgColor[];
 }
 
 export interface DraftPackRef {
