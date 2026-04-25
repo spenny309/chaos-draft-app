@@ -64,6 +64,15 @@ export interface DraftAllocationEntry {
   count: number;
 }
 
+export interface Cube {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  externalUrl?: string;
+  createdAt: Timestamp;
+  createdBy: string;
+}
+
 export type TournamentStatus = 'seating' | 'active' | 'finalized';
 
 export interface DraftSeat {
@@ -124,6 +133,11 @@ export interface Draft {
   allocation?: DraftAllocationEntry[];
   // Tournament
   tournament?: DraftTournament;
+  // Cube
+  cubeId?: string;
+  cubeName?: string;
+  cubeImageUrl?: string;
+  cubeExternalUrl?: string;
 }
 
 export type DraftFormat = 'Regular Draft' | 'Mobius Draft' | 'Sealed' | 'Team Sealed';
