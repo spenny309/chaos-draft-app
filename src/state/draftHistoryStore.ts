@@ -14,7 +14,8 @@ import {
 } from 'firebase/firestore';
 import { useInventoryStore } from './inventoryStore';
 import { usePrivateInventoryStore } from './privateInventoryStore';
-import type { Draft, PairingResult, TournamentPairing, TournamentRound } from '../types';
+import type { Draft, DraftPlayer, MtgColor, PairingResult, TournamentPairing, TournamentRound } from '../types';
+import { sortColors } from '../utils/archetypes';
 
 interface DraftHistoryState {
   drafts: Draft[];
@@ -30,6 +31,7 @@ interface DraftHistoryState {
   submitResult: (draftId: string, roundNumber: number, pairingId: string, result: Omit<PairingResult, 'submittedBy' | 'submittedAt'>) => Promise<void>;
   addRound: (draftId: string, pairings: TournamentPairing[]) => Promise<void>;
   finalizeTournament: (draftId: string, userId: string) => Promise<void>;
+  setPlayerArchetype: (draftId: string, playerId: string, primary: MtgColor[], splash: MtgColor[]) => Promise<void>;
 }
 
 export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
@@ -202,6 +204,33 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
     await updateDoc(doc(db, 'drafts', draftId), { tournament: updatedTournament });
     set(state => ({
       drafts: state.drafts.map(d => d.id === draftId ? { ...d, tournament: updatedTournament } : d),
+    }));
+  },
+
+  setPlayerArchetype: async (draftId, playerId, primary, splash) => {
+    const draft = get().drafts.find(d => d.id === draftId);
+    if (!draft) return;
+
+    const sortedPrimary = sortColors(primary);
+    const sortedSplash = sortColors(splash);
+
+    const updatedPlayers: DraftPlayer[] = draft.players.map(p => {
+      if (p.id !== playerId) return p;
+      if (sortedPrimary.length === 0) {
+        return { id: p.id, name: p.name, userId: p.userId };
+      }
+      return {
+        ...p,
+        primaryColors: sortedPrimary,
+        ...(sortedSplash.length > 0 ? { splashColors: sortedSplash } : {}),
+      };
+    });
+
+    await updateDoc(doc(db, 'drafts', draftId), { players: updatedPlayers });
+    set(state => ({
+      drafts: state.drafts.map(d =>
+        d.id === draftId ? { ...d, players: updatedPlayers } : d,
+      ),
     }));
   },
 }));
