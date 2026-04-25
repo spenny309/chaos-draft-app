@@ -12,24 +12,6 @@ interface TournamentViewProps {
   currentUserId: string | undefined;
 }
 
-const FILLER = /\b(draft|play|booster|collector|set|pack)s?\b/gi;
-
-function formatSetName(name: string): string {
-  return name.replace(FILLER, '').replace(/\s+/g, ' ').trim();
-}
-
-function draftSetNames(draft: Draft): string[] {
-  if (draft.type === 'chaos') {
-    const seen = new Set<string>();
-    const names: string[] = [];
-    for (const pack of draft.packsSelectedOrder ?? []) {
-      if (!seen.has(pack.name)) { seen.add(pack.name); names.push(pack.name); }
-    }
-    return names.map(formatSetName).filter(Boolean);
-  }
-  return (draft.sets ?? []).map(s => formatSetName(s.name)).filter(Boolean);
-}
-
 function playerName(id: string, players: DraftPlayer[]): string {
   return players.find(p => p.id === id)?.name ?? id;
 }
@@ -157,14 +139,6 @@ export default function TournamentView({ draft, isAdmin, currentUserId }: Tourna
       </div>
 
       {error && <p className="text-red-400 text-sm">{error}</p>}
-
-      {/* Sets */}
-      {(() => {
-        const setNames = draftSetNames(draft);
-        return setNames.length > 0 ? (
-          <p className="text-sm text-gray-200">{setNames.join(' · ')}</p>
-        ) : null;
-      })()}
 
       {/* Standings */}
       {standings.length > 0 && (
