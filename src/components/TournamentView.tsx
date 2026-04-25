@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useDraftHistoryStore } from '../state/draftHistoryStore';
 import ScoreEntry from './ScoreEntry';
 import { generateSwissPairings, computeStandings } from '../utils/swissPairings';
+import { formatArchetype } from '../utils/archetypes';
 import type { Draft, DraftPlayer, TournamentPairing } from '../types';
 
 interface TournamentViewProps {
@@ -13,6 +14,12 @@ interface TournamentViewProps {
 
 function playerName(id: string, players: DraftPlayer[]): string {
   return players.find(p => p.id === id)?.name ?? id;
+}
+
+function playerArchetype(id: string, players: DraftPlayer[]): string {
+  const p = players.find(pl => pl.id === id);
+  if (!p) return '';
+  return formatArchetype(p.primaryColors ?? [], p.splashColors ?? []);
 }
 
 export default function TournamentView({ draft, isAdmin, currentUserId }: TournamentViewProps) {
@@ -143,14 +150,22 @@ export default function TournamentView({ draft, isAdmin, currentUserId }: Tourna
             <span className="text-right">Record</span>
             <span className="text-right">GW</span>
           </div>
-          {standings.map((s, i) => (
-            <div key={s.playerId} className="grid grid-cols-[24px_1fr_60px_50px] px-4 py-2.5 text-sm border-b border-gray-700/30 last:border-0">
-              <span className="text-gray-600 font-bold text-xs">{i + 1}</span>
-              <span className="text-gray-200 font-semibold">{playerName(s.playerId, players)}</span>
-              <span className="text-gray-400 text-xs text-right">{s.matchTies > 0 ? `${s.matchWins} – ${s.matchLosses} – ${s.matchTies}` : `${s.matchWins} – ${s.matchLosses}`}</span>
-              <span className="text-gray-600 text-xs text-right">{s.gameWins}</span>
+          {standings.map((s, i) => {
+            const arch = playerArchetype(s.playerId, players);
+            return (
+            <div key={s.playerId} className="grid grid-cols-[24px_1fr_60px_50px] px-4 py-2.5 text-sm border-b border-gray-700/30 last:border-0 items-start">
+              <span className="text-gray-600 font-bold text-xs pt-0.5">{i + 1}</span>
+              <div>
+                <div className="text-gray-200 font-semibold">{playerName(s.playerId, players)}</div>
+                {arch && (
+                  <div className="text-xs text-gray-600 mt-0.5">{arch}</div>
+                )}
+              </div>
+              <span className="text-gray-400 text-xs text-right pt-0.5">{s.matchTies > 0 ? `${s.matchWins} – ${s.matchLosses} – ${s.matchTies}` : `${s.matchWins} – ${s.matchLosses}`}</span>
+              <span className="text-gray-600 text-xs text-right pt-0.5">{s.gameWins}</span>
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
 

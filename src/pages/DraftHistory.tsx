@@ -5,8 +5,31 @@ import { useInventoryStore } from "../state/inventoryStore";
 import { useUserStore } from "../state/userStore";
 import { useRegularDraftStore } from "../state/regularDraftStore";
 import { usePrivateInventoryStore } from "../state/privateInventoryStore";
-import type { Draft, DraftPackRef, DraftPlayer } from "../types";
+import type { Draft, DraftPackRef, DraftPlayer, MtgColor } from "../types";
 import { computeStandings } from '../utils/swissPairings';
+import { formatArchetype } from '../utils/archetypes';
+
+const ALL_COLORS: MtgColor[] = ['W', 'U', 'B', 'R', 'G'];
+
+type PipValue = 'off' | 'primary' | 'splash';
+type PipState = Record<MtgColor, PipValue>;
+
+const PIP_STYLE: Record<MtgColor, string> = {
+  W: 'bg-amber-100 text-amber-900',
+  U: 'bg-blue-700 text-blue-100',
+  B: 'bg-gray-800 text-gray-400 border border-gray-600',
+  R: 'bg-red-700 text-red-100',
+  G: 'bg-green-800 text-green-100',
+};
+
+function initPipState(player: DraftPlayer): PipState {
+  const s = { W: 'off', U: 'off', B: 'off', R: 'off', G: 'off' } as PipState;
+  for (const c of player.primaryColors ?? []) s[c] = 'primary';
+  for (const c of player.splashColors ?? []) s[c] = 'splash';
+  return s;
+}
+
+const EMPTY_PIPS: PipState = { W: 'off', U: 'off', B: 'off', R: 'off', G: 'off' };
 
 const typeBadgeColors: Record<string, string> = {
   chaos: 'bg-purple-700 text-purple-200',
@@ -23,6 +46,158 @@ const typeBadgeLabels: Record<string, string> = {
   sealed: 'Sealed',
   'team-sealed': 'Team Sealed',
 };
+
+interface PlayersWithArchetypeProps {
+  draft: Draft;
+  currentUserId: string | undefined;
+  isAdmin: boolean;
+  setPlayerArchetype: (draftId: string, playerId: string, primary: MtgColor[], splash: MtgColor[]) => Promise<void>;
+}
+
+function PlayersWithArchetype({ draft, currentUserId, isAdmin, setPlayerArchetype }: PlayersWithArchetypeProps) {
+  const myPlayer = draft.players.find(p => p.userId === currentUserId) ?? null;
+
+  const canEdit = (playerId: string) =>
+    isAdmin || myPlayer?.id === playerId;
+
+  const autoOpenPlayer =
+    myPlayer && (!myPlayer.primaryColors || myPlayer.primaryColors.length === 0)
+      ? myPlayer
+      : null;
+
+  const [editingPlayerId, setEditingPlayerId] = useState<string | null>(
+    autoOpenPlayer?.id ?? null,
+  );
+  const [pips, setPips] = useState<PipState>(
+    autoOpenPlayer ? initPipState(autoOpenPlayer) : EMPTY_PIPS,
+  );
+  const [saving, setSaving] = useState(false);
+
+  const openEditor = (player: DraftPlayer) => {
+    setPips(initPipState(player));
+    setEditingPlayerId(player.id);
+  };
+
+  const handleChipClick = (player: DraftPlayer) => {
+    if (!canEdit(player.id)) return;
+    if (editingPlayerId === player.id) {
+      setEditingPlayerId(null);
+    } else {
+      openEditor(player);
+    }
+  };
+
+  const cyclePip = (color: MtgColor) => {
+    setPips(prev => {
+      const cur = prev[color];
+      const next: PipValue = cur === 'off' ? 'primary' : cur === 'primary' ? 'splash' : 'off';
+      return { ...prev, [color]: next };
+    });
+  };
+
+  const handleSave = async (playerId: string) => {
+    setSaving(true);
+    const primary = ALL_COLORS.filter(c => pips[c] === 'primary');
+    const splash = ALL_COLORS.filter(c => pips[c] === 'splash');
+    await setPlayerArchetype(draft.id, playerId, primary, splash);
+    setSaving(false);
+    setEditingPlayerId(null);
+  };
+
+  const editingPlayer = editingPlayerId
+    ? (draft.players.find(p => p.id === editingPlayerId) ?? null)
+    : null;
+
+  const previewArch = editingPlayer
+    ? formatArchetype(
+        ALL_COLORS.filter(c => pips[c] === 'primary'),
+        ALL_COLORS.filter(c => pips[c] === 'splash'),
+      )
+    : '';
+
+  return (
+    <div className="mb-4">
+      <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2 block">
+        Players
+      </span>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {draft.players.map(player => {
+          const arch = formatArchetype(player.primaryColors ?? [], player.splashColors ?? []);
+          const editable = canEdit(player.id);
+          const isEditing = editingPlayerId === player.id;
+          return (
+            <button
+              key={player.id}
+              onClick={() => handleChipClick(player)}
+              disabled={!editable}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-sm border transition-colors
+                ${editable ? 'cursor-pointer' : 'cursor-default'}
+                ${isEditing
+                  ? 'bg-gray-800 border-blue-700 text-gray-200'
+                  : editable
+                    ? 'bg-gray-800 border-blue-900 text-gray-300 hover:border-blue-700'
+                    : 'bg-gray-800 border-gray-700 text-gray-300'
+                }`}
+            >
+              <span>{player.name}</span>
+              {arch && (
+                <>
+                  <span className="text-gray-600 text-xs">·</span>
+                  <span className="text-gray-400 text-xs">{arch}</span>
+                </>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {editingPlayer && (
+        <div className="mt-3 bg-gray-900/60 border border-gray-700/50 rounded-xl p-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-gray-400 text-sm w-20 shrink-0">{editingPlayer.name}</span>
+            <div className="flex gap-1.5">
+              {ALL_COLORS.map(color => (
+                <button
+                  key={color}
+                  onClick={() => cyclePip(color)}
+                  disabled={saving}
+                  aria-label={`${color} — ${pips[color]}`}
+                  title={`${color}: ${pips[color]} (click to cycle)`}
+                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all
+                    ${PIP_STYLE[color]}
+                    ${pips[color] === 'off' ? 'opacity-25' : ''}
+                    ${pips[color] === 'primary' ? 'ring-2 ring-offset-1 ring-offset-gray-900 ring-blue-400' : ''}
+                    ${pips[color] === 'splash' ? 'ring-2 ring-offset-1 ring-offset-gray-900 ring-purple-500 opacity-75' : ''}
+                  `}
+                >
+                  {color}
+                </button>
+              ))}
+            </div>
+            {previewArch && (
+              <span className="text-gray-500 text-xs ml-1">{previewArch}</span>
+            )}
+          </div>
+          <div className="flex gap-2 mt-3">
+            <button
+              onClick={() => handleSave(editingPlayer.id)}
+              disabled={saving}
+              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              onClick={() => setEditingPlayerId(null)}
+              className="px-3 py-1.5 text-gray-500 hover:text-gray-300 text-xs rounded-lg"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface RestockAlertProps {
   draft: Draft;
@@ -281,7 +456,7 @@ function TournamentWidget({ draft }: { draft: Draft }) {
 }
 
 export default function DraftHistory() {
-  const { drafts, loading, error, deleteDraft, markRestockComplete, loadDrafts, linkDraftPlayers } =
+  const { drafts, loading, error, deleteDraft, markRestockComplete, loadDrafts, linkDraftPlayers, setPlayerArchetype } =
     useDraftHistoryStore();
 
   const { packs: inventoryPacks, loading: inventoryLoading } =
@@ -442,21 +617,16 @@ export default function DraftHistory() {
 
                 {expandedDraftId === draft.id && (
                   <div className="mt-6 pt-6 border-t border-gray-700 animate-in fade-in duration-500">
-                    <div className="mb-4">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2 block">
-                        Players
-                      </span>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {draft.players.map((player) => (
-                          <span
-                            key={player.id}
-                            className="bg-gray-800 border border-gray-700 text-gray-300 px-3 py-1 rounded-full text-sm"
-                          >
-                            {player.name}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
+                    <PlayersWithArchetype
+                      draft={draft}
+                      currentUserId={profile?.uid}
+                      isAdmin={profile?.role === 'admin'}
+                      setPlayerArchetype={setPlayerArchetype}
+                    />
+
+                    {draft.tournament && (
+                      <TournamentWidget draft={draft} />
+                    )}
 
                     {draft.type === 'chaos' && draft.packsSelectedOrder && (() => {
                       const numPlayers = draft.players.length;
@@ -537,10 +707,6 @@ export default function DraftHistory() {
                       >
                         {finalizing === draft.id ? 'Finalizing…' : 'Finalize Draft'}
                       </button>
-                    )}
-
-                    {draft.tournament && (
-                      <TournamentWidget draft={draft} />
                     )}
 
                     {profile?.role === 'admin' && (
