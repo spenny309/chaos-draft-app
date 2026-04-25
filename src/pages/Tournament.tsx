@@ -5,11 +5,31 @@ import { useUserStore } from '../state/userStore';
 import TournamentView from '../components/TournamentView';
 import type { Draft } from '../types';
 
+const FILLER = /\b(draft|play|booster|collector|set|pack)s?\b/gi;
+
+function draftTitle(draft: Draft): string {
+  let rawNames: string[];
+  if (draft.type === 'chaos') {
+    const seen = new Set<string>();
+    rawNames = [];
+    for (const pack of draft.packsSelectedOrder ?? []) {
+      if (!seen.has(pack.name)) { seen.add(pack.name); rawNames.push(pack.name); }
+    }
+  } else {
+    rawNames = (draft.sets ?? []).map(s => s.name);
+  }
+  const setNames = rawNames.map(n => n.replace(FILLER, '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const typeLabel = draft.type === 'regular'
+    ? ''
+    : ` ${draft.type.charAt(0).toUpperCase() + draft.type.slice(1)}`;
+  if (setNames.length === 1) return `${setNames[0]}${typeLabel} Draft`;
+  return `${draft.type === 'regular' ? 'Regular' : draft.type.charAt(0).toUpperCase() + draft.type.slice(1)} Draft`;
+}
+
 function formatDraftOption(draft: Draft): string {
-  const type = draft.type.charAt(0).toUpperCase() + draft.type.slice(1);
   const date = draft.createdAt?.toDate().toLocaleDateString() ?? 'Unknown date';
   const t = draft.tournament!;
-  return `${type} Draft ${date} — Round ${t.currentRound} of ${t.totalRounds}`;
+  return `${draftTitle(draft)} ${date} — Round ${t.currentRound} of ${t.totalRounds}`;
 }
 
 export default function Tournament() {
@@ -41,7 +61,7 @@ export default function Tournament() {
   }
 
   const t = selectedDraft.tournament!;
-  const type = selectedDraft.type.charAt(0).toUpperCase() + selectedDraft.type.slice(1);
+  const title = draftTitle(selectedDraft);
   const date = selectedDraft.createdAt?.toDate().toLocaleDateString() ?? 'Unknown date';
   const playerNames = selectedDraft.players.map(p => p.name).join(', ');
   const isFinalized = t.status === 'finalized';
@@ -50,7 +70,7 @@ export default function Tournament() {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-white">{type} Draft</h2>
+        <h2 className="text-2xl font-bold text-white">{title}</h2>
         <div className="flex items-center gap-3 flex-wrap mt-1">
           {isFinalized ? (
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-green-900/30 text-green-400 border border-green-700/30">
