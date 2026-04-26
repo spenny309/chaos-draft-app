@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useUserStore } from '../state/userStore';
 import { usePackCatalogStore } from '../state/packCatalogStore';
+import { useCubeStore } from '../state/cubeStore';
 import type { UserProfile } from '../types';
 
-type AdminSection = 'users' | 'catalog';
+type AdminSection = 'users' | 'catalog' | 'cubes';
 
 export default function Admin() {
   const [section, setSection] = useState<AdminSection>('users');
@@ -28,10 +29,19 @@ export default function Admin() {
         >
           Pack Catalog
         </button>
+        <button
+          onClick={() => setSection('cubes')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            section === 'cubes' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700'
+          }`}
+        >
+          Cubes
+        </button>
       </div>
 
       {section === 'users' && <UserManagement />}
       {section === 'catalog' && <PackCatalogManagement />}
+      {section === 'cubes' && <CubeManagement />}
     </div>
   );
 }
@@ -129,6 +139,120 @@ function UserManagement() {
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+function CubeManagement() {
+  const { cubes, loading, addCube, deleteCube } = useCubeStore();
+
+  const [newName, setNewName] = useState('');
+  const [newImageUrl, setNewImageUrl] = useState('');
+  const [newExternalUrl, setNewExternalUrl] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    setSaving(true);
+    await addCube({
+      name: newName.trim(),
+      ...(newImageUrl.trim() ? { imageUrl: newImageUrl.trim() } : {}),
+      ...(newExternalUrl.trim() ? { externalUrl: newExternalUrl.trim() } : {}),
+      createdBy: 'admin',
+    });
+    setNewName('');
+    setNewImageUrl('');
+    setNewExternalUrl('');
+    setSaving(false);
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!window.confirm(`Delete "${name}"?`)) return;
+    await deleteCube(id);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Cube list */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold text-gray-200">Cubes ({cubes.length})</h2>
+        {loading && <div className="text-gray-400">Loading…</div>}
+        {!loading && cubes.length === 0 && <p className="text-gray-400">No cubes yet.</p>}
+        {cubes.map(cube => (
+          <div key={cube.id} className="bg-gray-800 rounded-xl p-4 border border-gray-700 flex items-center gap-4">
+            {cube.imageUrl ? (
+              <img
+                src={cube.imageUrl}
+                alt={cube.name}
+                className="w-8 h-8 object-cover rounded flex-shrink-0"
+                onError={e => { (e.target as HTMLImageElement).src = 'https://placehold.co/32x32/1F2937/FFF?text=?'; }}
+              />
+            ) : (
+              <div className="w-8 h-8 bg-gray-600 rounded flex-shrink-0" aria-hidden="true" />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-white font-medium">{cube.name}</p>
+            </div>
+            {cube.externalUrl && (
+              <a
+                href={cube.externalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:text-blue-300 flex-shrink-0"
+                title="Open external link"
+                aria-label={`Open external link for ${cube.name}`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </a>
+            )}
+            <button
+              onClick={() => handleDelete(cube.id, cube.name)}
+              className="px-3 py-1.5 bg-red-700 hover:bg-red-600 text-white text-xs rounded-lg font-medium flex-shrink-0"
+            >
+              Delete
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Add new cube */}
+      <div className="bg-gray-800 rounded-xl p-5 border border-gray-700 space-y-4">
+        <h2 className="text-lg font-semibold text-gray-200">Add Cube</h2>
+        <form onSubmit={handleAdd} className="flex flex-col gap-3">
+          <input
+            type="text"
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            placeholder="Cube name"
+            required
+            className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          />
+          <input
+            type="url"
+            value={newImageUrl}
+            onChange={e => setNewImageUrl(e.target.value)}
+            placeholder="Image URL (optional)"
+            className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          />
+          <input
+            type="url"
+            value={newExternalUrl}
+            onChange={e => setNewExternalUrl(e.target.value)}
+            placeholder="Cubecobra / Moxfield URL (optional)"
+            className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          />
+          <button
+            type="submit"
+            disabled={saving || !newName.trim()}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-bold rounded-lg self-start"
+          >
+            Add Cube
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
