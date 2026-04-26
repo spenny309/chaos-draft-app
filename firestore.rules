@@ -45,6 +45,12 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Cubes — approved users read; admin write
+    match /cubes/{cubeId} {
+      allow read: if isApproved();
+      allow write: if isAdmin();
+    }
+
     // Chaos inventory — approved users read; admin write
     match /packs/{packId} {
       allow read: if isApproved();

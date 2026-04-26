@@ -23,7 +23,16 @@
       "Bash(git -C /c/Users/Spence/Coding/chaos-draft-app add src/pages/Tournament.tsx)",
       "Bash(git -C /c/Users/Spence/Coding/chaos-draft-app commit -m ' *)",
       "Bash(C:/Users/Spence/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/skills/brainstorming/scripts/start-server.sh *)",
-      "Bash(git worktree *)"
+      "Bash(git worktree *)",
+      "Bash(ls -d .worktrees)",
+      "Bash(ls -d worktrees)",
+      "Bash(git check-ignore *)",
+      "Bash(cat vite.config.ts)",
+      "Bash(cat vitest.config.ts)",
+      "Bash(GIT_EDITOR=true git rebase --continue)",
+      "Bash(git checkout *)",
+      "Bash(git pull *)",
+      "Bash(git branch *)"
     ]
   }
 }
