@@ -671,7 +671,27 @@ export default function DraftHistory() {
                       );
                     })()}
 
-                    {draft.type !== 'chaos' && draft.sets && (
+                    {draft.cubeId ? (
+                      <div className="space-y-2 mt-6 mb-4">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">Cube</p>
+                        <div className="flex items-center gap-3 text-sm">
+                          {draft.cubeImageUrl && (
+                            <img src={draft.cubeImageUrl} alt={draft.cubeName} className="w-5 h-8 object-cover rounded" />
+                          )}
+                          <span className="text-gray-200 font-medium">{draft.cubeName}</span>
+                          {draft.cubeExternalUrl && (
+                            <a
+                              href={draft.cubeExternalUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-400 hover:text-blue-300 text-xs"
+                            >
+                              View list ↗
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ) : draft.type !== 'chaos' && draft.sets && (
                       <div className="space-y-2 mt-6 mb-4">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">Sets</p>
                         {draft.sets.map(s => (
