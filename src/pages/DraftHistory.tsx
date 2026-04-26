@@ -409,49 +409,45 @@ function TournamentWidget({ draft }: { draft: Draft }) {
     winnerName = draft.players.find(p => p.id === standings[0]?.playerId)?.name ?? null;
   }
 
-  const matchesComplete = t.rounds
-    .flatMap(r => r.pairings)
-    .filter(p => p.status === 'complete' && p.player2Id !== null).length;
-
   return (
     <div className="mt-6 pt-6 border-t border-gray-700/50">
-      <div className={`flex items-center gap-4 bg-gray-900/60 border rounded-xl p-4 ${
-        isFinalized ? 'border-green-700/30' : 'border-blue-700/30'
-      }`}>
-        <span className="text-xl">🏆</span>
+      <Link
+        to={`/tournament?draft=${draft.id}`}
+        className={`flex items-center gap-4 bg-gray-900/60 border rounded-xl p-4 transition-colors ${
+          isFinalized
+            ? 'border-green-700/30 hover:border-green-600/50 hover:bg-gray-900/80'
+            : 'border-blue-700/30 hover:border-blue-600/50 hover:bg-gray-900/80'
+        }`}
+      >
+        <span className="text-2xl">{isFinalized ? '🏆' : '⚔️'}</span>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-gray-200">
-              {isFinalized ? 'Tournament complete' : 'Tournament in progress'}
-            </span>
-            {isFinalized ? (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-900/30 text-green-400 border border-green-700/30">
-                Finalized
-              </span>
+          {isFinalized ? (
+            winnerName ? (
+              <>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Winner</p>
+                <p className="text-sm font-bold text-yellow-300">{winnerName}</p>
+              </>
             ) : (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-400 border border-blue-700/40">
-                Round {t.currentRound} of {t.totalRounds}
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {isFinalized && winnerName
-              ? `Winner: ${winnerName}`
-              : `${matchesComplete} matches complete`
-            }
-          </p>
+              <p className="text-sm font-semibold text-gray-200">Tournament complete</p>
+            )
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />
+                <p className="text-sm font-semibold text-gray-200">In Progress</p>
+              </div>
+              <p className="text-xs text-gray-500 mt-0.5">Round {t.currentRound} of {t.totalRounds}</p>
+            </>
+          )}
         </div>
-        <Link
-          to={`/tournament?draft=${draft.id}`}
-          className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
-            isFinalized
-              ? 'bg-green-900/20 text-green-400 border-green-700/30 hover:bg-green-900/40'
-              : 'bg-blue-900/40 text-blue-300 border-blue-700/30 hover:bg-blue-900/60'
-          }`}
-        >
-          {isFinalized ? 'View Results →' : 'View Tournament →'}
-        </Link>
-      </div>
+        <span className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+          isFinalized
+            ? 'bg-green-900/20 text-green-400 border-green-700/30'
+            : 'bg-blue-900/40 text-blue-300 border-blue-700/30'
+        }`}>
+          {isFinalized ? 'View Results →' : 'View Live →'}
+        </span>
+      </Link>
     </div>
   );
 }
