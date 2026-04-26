@@ -8,6 +8,7 @@ import { usePrivateInventoryStore } from "../state/privateInventoryStore";
 import type { Draft, DraftPackRef, DraftPlayer, MtgColor } from "../types";
 import { computeStandings } from '../utils/swissPairings';
 import { formatArchetype } from '../utils/archetypes';
+import { draftTitle } from '../utils/draftTitle';
 
 const ALL_COLORS: MtgColor[] = ['W', 'U', 'B', 'R', 'G'];
 
@@ -467,6 +468,7 @@ export default function DraftHistory() {
   const { batchDeduct } = usePrivateInventoryStore();
 
   const [expandedDraftId, setExpandedDraftId] = useState<string | null>(null);
+  const [expandedAllocationIds, setExpandedAllocationIds] = useState<Set<string>>(new Set());
   const [selectedPack, setSelectedPack] = useState<DraftPackRef | null>(null);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [finalizing, setFinalizing] = useState<string | null>(null);
@@ -582,12 +584,15 @@ export default function DraftHistory() {
                         title="Restock Needed"
                       ></div>
                     )}
-                    <h3 className="text-xl font-bold text-blue-400 truncate">
-                      {draft.type.charAt(0).toUpperCase() + draft.type.slice(1)} Draft on{" "}
-                      {draft.createdAt?.toDate().toLocaleDateString() ||
-                        "Unknown Date"}{" "}
-                      with {playerNames}
-                    </h3>
+                    <div className="min-w-0">
+                      <h3 className="text-xl font-bold text-blue-400 truncate">
+                        {draftTitle(draft)}
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {draft.createdAt?.toDate().toLocaleDateString() || "Unknown Date"}
+                        {" · "}{playerNames}
+                      </p>
+                    </div>
                     <span className={`px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 ${typeBadgeColors[draft.type] ?? 'bg-gray-700 text-gray-300'}`}>
                       {typeBadgeLabels[draft.type] ?? draft.type}
                     </span>
@@ -635,7 +640,7 @@ export default function DraftHistory() {
                         packs: draft.packsSelectedOrder!.filter((_, i) => i % numPlayers === pi),
                       }));
                       return (
-                        <div className="mb-4">
+                        <div className="mt-6 mb-4">
                           <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 block mb-2">
                             Packs Drafted
                           </span>
@@ -667,7 +672,7 @@ export default function DraftHistory() {
                     })()}
 
                     {draft.type !== 'chaos' && draft.sets && (
-                      <div className="space-y-2 mb-4">
+                      <div className="space-y-2 mt-6 mb-4">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">Sets</p>
                         {draft.sets.map(s => (
                           <div key={s.catalogId} className="flex items-center gap-2 text-sm text-gray-300">
@@ -678,13 +683,26 @@ export default function DraftHistory() {
                         ))}
                         {draft.allocation && draft.allocation.length > 0 && (
                           <div className="mt-3">
-                            <p className="text-gray-400 text-sm font-medium mb-1">Allocation:</p>
-                            {draft.allocation.map((a, i) => (
-                              <div key={i} className="flex justify-between text-xs text-gray-300">
-                                <span>{a.userName} — {a.name}</span>
-                                <span className="font-semibold">{a.count}</span>
+                            <button
+                              onClick={() => setExpandedAllocationIds(prev => {
+                                const next = new Set(prev);
+                                next.has(draft.id) ? next.delete(draft.id) : next.add(draft.id);
+                                return next;
+                              })}
+                              className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                            >
+                              {expandedAllocationIds.has(draft.id) ? '▾ Hide allocation' : '▸ Show allocation'}
+                            </button>
+                            {expandedAllocationIds.has(draft.id) && (
+                              <div className="mt-2 space-y-0.5">
+                                {draft.allocation.map((a, i) => (
+                                  <div key={i} className="flex justify-between text-xs text-gray-300">
+                                    <span>{a.userName} — {a.name}</span>
+                                    <span className="font-semibold">{a.count}</span>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
+                            )}
                           </div>
                         )}
                       </div>
