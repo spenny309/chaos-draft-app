@@ -12,45 +12,45 @@ function playerName(id: string, players: DraftPlayer[]): string {
 }
 
 export default function ScoreEntry({ pairing, players, onSubmit }: ScoreEntryProps) {
-  const [p1Wins, setP1Wins] = useState(0);
-  const [p2Wins, setP2Wins] = useState(0);
-  const [ties, setTies] = useState(0);
-  const [isPartial, setIsPartial] = useState(false);
+  const [p1Wins, setP1Wins] = useState('');
+  const [p2Wins, setP2Wins] = useState('');
+  const [ties, setTies] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   if (pairing.player2Id === null) return null;
 
   if (pairing.result) {
     const r = pairing.result;
-    const winnerName = r.matchWinner === 'player1'
-      ? playerName(pairing.player1Id, players)
-      : r.matchWinner === 'player2'
-      ? playerName(pairing.player2Id!, players)
-      : null;
+    const isTie = r.matchWinner === 'tie';
+    const p1Style = r.matchWinner === 'player1'
+      ? 'text-white font-semibold'
+      : isTie ? 'text-yellow-400' : 'text-gray-500';
+    const p2Style = r.matchWinner === 'player2'
+      ? 'text-white font-semibold'
+      : isTie ? 'text-yellow-400' : 'text-gray-500';
     return (
-      <div className="bg-gray-700/50 rounded-lg p-3 text-sm text-gray-300 space-y-1">
+      <div className="bg-gray-700/50 rounded-lg p-3 text-sm space-y-1">
         <div className="flex justify-between">
-          <span>{playerName(pairing.player1Id, players)}</span>
-          <span className="font-bold text-white">{r.player1Wins}</span>
+          <span className={p1Style}>{playerName(pairing.player1Id, players)}</span>
+          <span className={`font-bold ${p1Style}`}>{r.player1Wins}</span>
         </div>
         <div className="flex justify-between">
-          <span>{playerName(pairing.player2Id!, players)}</span>
-          <span className="font-bold text-white">{r.player2Wins}</span>
+          <span className={p2Style}>{playerName(pairing.player2Id!, players)}</span>
+          <span className={`font-bold ${p2Style}`}>{r.player2Wins}</span>
         </div>
-        {r.ties > 0 && <p className="text-gray-400 text-xs">Ties: {r.ties}</p>}
-        <p className="text-xs font-semibold mt-1">
-          {winnerName ? <span className="text-green-400">{winnerName} wins</span> : <span className="text-yellow-400">Tie match</span>}
-          {r.isPartial && <span className="text-orange-400 ml-2">(partial)</span>}
-        </p>
+        {r.ties > 0 && <p className="text-gray-500 text-xs">Ties: {r.ties}</p>}
       </div>
     );
   }
 
   const handleSubmit = async () => {
-    const matchWinner = p1Wins > p2Wins ? 'player1' : p2Wins > p1Wins ? 'player2' : 'tie';
+    const p1 = Math.max(0, parseInt(p1Wins) || 0);
+    const p2 = Math.max(0, parseInt(p2Wins) || 0);
+    const t = Math.max(0, parseInt(ties) || 0);
+    const matchWinner = p1 > p2 ? 'player1' : p2 > p1 ? 'player2' : 'tie';
     setSubmitting(true);
     try {
-      await onSubmit({ player1Wins: p1Wins, player2Wins: p2Wins, ties, matchWinner, isPartial });
+      await onSubmit({ player1Wins: p1, player2Wins: p2, ties: t, matchWinner, isPartial: false });
     } finally {
       setSubmitting(false);
     }
@@ -58,6 +58,7 @@ export default function ScoreEntry({ pairing, players, onSubmit }: ScoreEntryPro
 
   const p1Name = playerName(pairing.player1Id, players);
   const p2Name = playerName(pairing.player2Id!, players);
+  const inputCls = 'w-full px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white placeholder-gray-500 text-center focus:outline-none focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
 
   return (
     <div className="bg-gray-700/50 rounded-lg p-3 space-y-3">
@@ -65,41 +66,11 @@ export default function ScoreEntry({ pairing, players, onSubmit }: ScoreEntryPro
         <p className="text-gray-300 truncate" title={p1Name}>{p1Name}</p>
         <p className="text-gray-300 text-sm text-center">Ties</p>
         <p className="text-gray-300 truncate text-right" title={p2Name}>{p2Name}</p>
-        <input
-          type="number"
-          min="0"
-          value={p1Wins || ''}
-          placeholder="0"
-          onChange={e => setP1Wins(Math.max(0, parseInt(e.target.value) || 0))}
-          className="w-full px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white placeholder-gray-500 text-center focus:outline-none focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-        />
-        <input
-          type="number"
-          min="0"
-          value={ties || ''}
-          placeholder="0"
-          onChange={e => setTies(Math.max(0, parseInt(e.target.value) || 0))}
-          className="w-full px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white placeholder-gray-500 text-center focus:outline-none focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-        />
-        <input
-          type="number"
-          min="0"
-          value={p2Wins || ''}
-          placeholder="0"
-          onChange={e => setP2Wins(Math.max(0, parseInt(e.target.value) || 0))}
-          className="w-full px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white placeholder-gray-500 text-center focus:outline-none focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-        />
+        <input type="number" min="0" value={p1Wins} placeholder="0" onChange={e => setP1Wins(e.target.value.replace(/[^0-9]/g, ''))} className={inputCls} />
+        <input type="number" min="0" value={ties} placeholder="0" onChange={e => setTies(e.target.value.replace(/[^0-9]/g, ''))} className={inputCls} />
+        <input type="number" min="0" value={p2Wins} placeholder="0" onChange={e => setP2Wins(e.target.value.replace(/[^0-9]/g, ''))} className={inputCls} />
       </div>
-      <div className="flex items-center justify-between">
-        <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={isPartial}
-            onChange={e => setIsPartial(e.target.checked)}
-            className="rounded border-gray-500"
-          />
-          Mark as partial
-        </label>
+      <div className="flex justify-end">
         <button
           onClick={handleSubmit}
           disabled={submitting}
