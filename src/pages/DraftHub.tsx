@@ -69,7 +69,8 @@ export default function DraftHub() {
   };
 
   const handleStartRound1 = async () => {
-    if (!orderedPlayers || !round1Pairings || !config || !pendingAllocation) return;
+    if (!orderedPlayers || !round1Pairings || !config) return;
+    if (!config.cubeId && !pendingAllocation) return;
     setStarting(true);
     setSaveError(null);
     try {
@@ -80,7 +81,7 @@ export default function DraftHub() {
         totalRounds: 3,
         status: 'active',
       };
-      const draftId = await savePreview(config, previewAllocations, pendingAllocation);
+      const draftId = await savePreview(config, previewAllocations, pendingAllocation ?? []);
       await updateTournament(draftId, tournament);
       await loadDrafts();
       navigate('/tournament');
