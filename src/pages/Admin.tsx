@@ -144,12 +144,38 @@ function UserManagement() {
 }
 
 function CubeManagement() {
-  const { cubes, loading, addCube, deleteCube } = useCubeStore();
+  const { cubes, loading, addCube, updateCube, deleteCube } = useCubeStore();
 
   const [newName, setNewName] = useState('');
   const [newImageUrl, setNewImageUrl] = useState('');
   const [newExternalUrl, setNewExternalUrl] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editImageUrl, setEditImageUrl] = useState('');
+  const [editExternalUrl, setEditExternalUrl] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+
+  const startEdit = (cube: { id: string; name: string; imageUrl?: string; externalUrl?: string }) => {
+    setEditingId(cube.id);
+    setEditName(cube.name);
+    setEditImageUrl(cube.imageUrl ?? '');
+    setEditExternalUrl(cube.externalUrl ?? '');
+  };
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingId || !editName.trim()) return;
+    setEditSaving(true);
+    await updateCube(editingId, {
+      name: editName.trim(),
+      ...(editImageUrl.trim() ? { imageUrl: editImageUrl.trim() } : {}),
+      ...(editExternalUrl.trim() ? { externalUrl: editExternalUrl.trim() } : {}),
+    });
+    setEditingId(null);
+    setEditSaving(false);
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,6 +198,8 @@ function CubeManagement() {
     await deleteCube(id);
   };
 
+  const inputCls = 'px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm';
+
   return (
     <div className="space-y-6">
       {/* Cube list */}
@@ -180,40 +208,62 @@ function CubeManagement() {
         {loading && <div className="text-gray-400">Loading…</div>}
         {!loading && cubes.length === 0 && <p className="text-gray-400">No cubes yet.</p>}
         {cubes.map(cube => (
-          <div key={cube.id} className="bg-gray-800 rounded-xl p-4 border border-gray-700 flex items-center gap-4">
-            {cube.imageUrl ? (
-              <img
-                src={cube.imageUrl}
-                alt={cube.name}
-                className="w-8 h-8 object-cover rounded flex-shrink-0"
-                onError={e => { (e.target as HTMLImageElement).src = 'https://placehold.co/32x32/1F2937/FFF?text=?'; }}
-              />
-            ) : (
-              <div className="w-8 h-8 bg-gray-600 rounded flex-shrink-0" aria-hidden="true" />
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-white font-medium">{cube.name}</p>
-            </div>
-            {cube.externalUrl && (
-              <a
-                href={cube.externalUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-400 hover:text-blue-300 flex-shrink-0"
-                title="Open external link"
-                aria-label={`Open external link for ${cube.name}`}
+          <div key={cube.id} className="bg-gray-800 rounded-xl border border-gray-700">
+            <div className="p-4 flex items-center gap-4">
+              {cube.imageUrl ? (
+                <img
+                  src={cube.imageUrl}
+                  alt={cube.name}
+                  className="w-8 h-8 object-cover rounded flex-shrink-0"
+                  onError={e => { (e.target as HTMLImageElement).src = 'https://placehold.co/32x32/1F2937/FFF?text=?'; }}
+                />
+              ) : (
+                <div className="w-8 h-8 bg-gray-600 rounded flex-shrink-0" aria-hidden="true" />
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-white font-medium">{cube.name}</p>
+              </div>
+              {cube.externalUrl && (
+                <a
+                  href={cube.externalUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:text-blue-300 flex-shrink-0"
+                  aria-label={`Open external link for ${cube.name}`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
+              )}
+              <button
+                onClick={() => editingId === cube.id ? setEditingId(null) : startEdit(cube)}
+                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 text-white text-xs rounded-lg font-medium flex-shrink-0"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              </a>
+                {editingId === cube.id ? 'Cancel' : 'Edit'}
+              </button>
+              <button
+                onClick={() => handleDelete(cube.id, cube.name)}
+                className="px-3 py-1.5 bg-red-700 hover:bg-red-600 text-white text-xs rounded-lg font-medium flex-shrink-0"
+              >
+                Delete
+              </button>
+            </div>
+            {editingId === cube.id && (
+              <form onSubmit={handleUpdate} className="px-4 pb-4 flex flex-col gap-3 border-t border-gray-700 pt-4">
+                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} placeholder="Cube name" required className={inputCls} />
+                <input type="url" value={editImageUrl} onChange={e => setEditImageUrl(e.target.value)} placeholder="Image URL (optional)" className={inputCls} />
+                <input type="url" value={editExternalUrl} onChange={e => setEditExternalUrl(e.target.value)} placeholder="Cubecobra / Moxfield URL (optional)" className={inputCls} />
+                <div className="flex gap-2">
+                  <button type="submit" disabled={editSaving || !editName.trim()} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-bold rounded-lg">
+                    {editSaving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button type="button" onClick={() => setEditingId(null)} className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white text-sm font-medium rounded-lg">
+                    Cancel
+                  </button>
+                </div>
+              </form>
             )}
-            <button
-              onClick={() => handleDelete(cube.id, cube.name)}
-              className="px-3 py-1.5 bg-red-700 hover:bg-red-600 text-white text-xs rounded-lg font-medium flex-shrink-0"
-            >
-              Delete
-            </button>
           </div>
         ))}
       </div>
@@ -222,33 +272,10 @@ function CubeManagement() {
       <div className="bg-gray-800 rounded-xl p-5 border border-gray-700 space-y-4">
         <h2 className="text-lg font-semibold text-gray-200">Add Cube</h2>
         <form onSubmit={handleAdd} className="flex flex-col gap-3">
-          <input
-            type="text"
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            placeholder="Cube name"
-            required
-            className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-          />
-          <input
-            type="url"
-            value={newImageUrl}
-            onChange={e => setNewImageUrl(e.target.value)}
-            placeholder="Image URL (optional)"
-            className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-          />
-          <input
-            type="url"
-            value={newExternalUrl}
-            onChange={e => setNewExternalUrl(e.target.value)}
-            placeholder="Cubecobra / Moxfield URL (optional)"
-            className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-          />
-          <button
-            type="submit"
-            disabled={saving || !newName.trim()}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-bold rounded-lg self-start"
-          >
+          <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Cube name" required className={inputCls} />
+          <input type="url" value={newImageUrl} onChange={e => setNewImageUrl(e.target.value)} placeholder="Image URL (optional)" className={inputCls} />
+          <input type="url" value={newExternalUrl} onChange={e => setNewExternalUrl(e.target.value)} placeholder="Cubecobra / Moxfield URL (optional)" className={inputCls} />
+          <button type="submit" disabled={saving || !newName.trim()} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-bold rounded-lg self-start">
             Add Cube
           </button>
         </form>
