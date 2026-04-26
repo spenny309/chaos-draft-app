@@ -8,7 +8,6 @@ const {
   mockDeleteDoc,
   mockDoc,
   mockServerTimestamp,
-  mockUnsub,
 } = vi.hoisted(() => {
   const mockUnsub = vi.fn();
   return {
