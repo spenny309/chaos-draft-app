@@ -2,6 +2,7 @@ import { useState } from 'react';
 import PackCatalogSearch from '../components/PackCatalogSearch';
 import PlayerSearch from '../components/PlayerSearch';
 import { useInventoryStore } from '../state/inventoryStore';
+import { useCubeStore } from '../state/cubeStore';
 import type { PackCatalogEntry, DraftFormat, DraftPlayer } from '../types';
 import { DEFAULT_PACKS_PER_PERSON } from '../types';
 
@@ -25,12 +26,17 @@ interface RegularDraftSetupProps {
     sets: PackCatalogEntry[];
     format: DraftFormat;
     packsPerPerson: number;
+    cubeId?: string;
+    cubeName?: string;
+    cubeImageUrl?: string;
+    cubeExternalUrl?: string;
   }) => void;
   onStartChaos: (players: DraftPlayer[]) => void;
 }
 
 export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraftSetupProps) {
   const packs = useInventoryStore(s => s.packs);
+  const { cubes } = useCubeStore();
 
   const [numPlayers, setNumPlayers] = useState(4);
   const [players, setPlayers] = useState<DraftPlayer[]>(
@@ -39,6 +45,11 @@ export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraft
   const [format, setFormat] = useState<SetupFormat>('Chaos Draft');
   const [sets, setSets] = useState<PackCatalogEntry[]>([]);
   const [packsPerPerson, setPacksPerPerson] = useState(DEFAULT_PACKS_PER_PERSON['Regular Draft']);
+  const [source, setSource] = useState<'sets' | 'cube'>('sets');
+  const [selectedCubeId, setSelectedCubeId] = useState<string | null>(null);
+  const [selectedCubeName, setSelectedCubeName] = useState<string | null>(null);
+  const [selectedCubeImageUrl, setSelectedCubeImageUrl] = useState<string | null>(null);
+  const [selectedCubeExternalUrl, setSelectedCubeExternalUrl] = useState<string | null>(null);
 
   const isChaos = format === 'Chaos Draft';
 
@@ -58,6 +69,13 @@ export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraft
   const handleFormatChange = (f: SetupFormat) => {
     setFormat(f);
     if (f !== 'Chaos Draft') setPacksPerPerson(DEFAULT_PACKS_PER_PERSON[f as DraftFormat]);
+    if (f === 'Chaos Draft') {
+      setSource('sets');
+      setSelectedCubeId(null);
+      setSelectedCubeName(null);
+      setSelectedCubeImageUrl(null);
+      setSelectedCubeExternalUrl(null);
+    }
     const defaultPlayers = DEFAULT_PLAYERS[f];
     if (defaultPlayers) handleNumPlayersChange(defaultPlayers);
   };
@@ -68,6 +86,13 @@ export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraft
 
   const handleRemoveSet = (id: string) => setSets(prev => prev.filter(s => s.id !== id));
 
+  const handleSelectCube = (id: string, name: string, imageUrl?: string, externalUrl?: string) => {
+    setSelectedCubeId(id);
+    setSelectedCubeName(name);
+    setSelectedCubeImageUrl(imageUrl ?? null);
+    setSelectedCubeExternalUrl(externalUrl ?? null);
+  };
+
   const handleSubmit = () => {
     if (isChaos) {
       const namedPlayers = players.map((p, i) => ({
@@ -76,7 +101,16 @@ export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraft
       }));
       onStartChaos(namedPlayers);
     } else {
-      onNext({ players, sets, format: format as DraftFormat, packsPerPerson });
+      onNext({
+        players,
+        sets: source === 'sets' ? sets : [],
+        format: format as DraftFormat,
+        packsPerPerson,
+        cubeId: source === 'cube' ? (selectedCubeId ?? undefined) : undefined,
+        cubeName: source === 'cube' ? (selectedCubeName ?? undefined) : undefined,
+        cubeImageUrl: source === 'cube' ? (selectedCubeImageUrl ?? undefined) : undefined,
+        cubeExternalUrl: source === 'cube' ? (selectedCubeExternalUrl ?? undefined) : undefined,
+      });
     }
   };
 
@@ -85,7 +119,9 @@ export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraft
   const isRounded = sets.length > 0 && totalPacks % sets.length !== 0;
 
   const canProceed = players.every(p => p.name.trim().length > 0) && (
-    isChaos || (sets.length > 0 && packsPerPerson > 0)
+    isChaos ||
+    (source === 'sets' && sets.length > 0 && packsPerPerson > 0) ||
+    (source === 'cube' && selectedCubeId != null && packsPerPerson > 0)
   );
 
   return (
@@ -140,20 +176,73 @@ export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraft
         </div>
       </div>
 
-      {/* Sets to Draft (non-chaos only) */}
+      {/* Card Source (non-chaos only) */}
       {!isChaos && (
         <div className="bg-gray-800 rounded-xl p-5 border border-gray-700 space-y-3">
-          <h3 className="font-semibold text-gray-200">Sets to Draft</h3>
-          <PackCatalogSearch onSelect={handleAddSet} placeholder="Add a set…" />
-          {sets.length > 0 && (
-            <div className="space-y-2 mt-2">
-              {sets.map(s => (
-                <div key={s.id} className="flex items-center gap-3 bg-gray-700 rounded-lg px-3 py-2">
-                  <img src={s.imageUrl} alt={s.name} className="w-6 h-8 object-cover rounded" />
-                  <span className="text-white text-sm flex-1">{s.name}</span>
-                  <button onClick={() => handleRemoveSet(s.id)} className="text-gray-400 hover:text-red-400 text-sm">✕</button>
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-gray-200">Card Source</h3>
+            <div className="flex rounded-lg overflow-hidden border border-gray-600">
+              <button
+                onClick={() => setSource('sets')}
+                className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                  source === 'sets' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                Sets
+              </button>
+              <button
+                onClick={() => setSource('cube')}
+                className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                  source === 'cube' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                Cube
+              </button>
+            </div>
+          </div>
+
+          {source === 'sets' && (
+            <>
+              <PackCatalogSearch onSelect={handleAddSet} placeholder="Add a set…" />
+              {sets.length > 0 && (
+                <div className="space-y-2 mt-2">
+                  {sets.map(s => (
+                    <div key={s.id} className="flex items-center gap-3 bg-gray-700 rounded-lg px-3 py-2">
+                      <img src={s.imageUrl} alt={s.name} className="w-6 h-8 object-cover rounded" />
+                      <span className="text-white text-sm flex-1">{s.name}</span>
+                      <button onClick={() => handleRemoveSet(s.id)} className="text-gray-400 hover:text-red-400 text-sm">✕</button>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+            </>
+          )}
+
+          {source === 'cube' && (
+            <div className="space-y-2">
+              {cubes.length === 0 ? (
+                <p className="text-gray-400 text-sm text-center py-4">No cubes found. Add one in the Admin panel.</p>
+              ) : (
+                cubes.map(cube => (
+                  <button
+                    key={cube.id}
+                    onClick={() => handleSelectCube(cube.id, cube.name, cube.imageUrl, cube.externalUrl)}
+                    className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
+                      selectedCubeId === cube.id
+                        ? 'bg-blue-700 border border-blue-500 text-white'
+                        : 'bg-gray-700 border border-transparent text-gray-200 hover:bg-gray-600'
+                    }`}
+                  >
+                    {cube.imageUrl && (
+                      <img src={cube.imageUrl} alt={cube.name} className="w-8 h-8 object-cover rounded" />
+                    )}
+                    <span className="flex-1 text-sm font-medium">{cube.name}</span>
+                    {selectedCubeId === cube.id && (
+                      <span className="text-blue-300 text-base">✓</span>
+                    )}
+                  </button>
+                ))
+              )}
             </div>
           )}
         </div>
@@ -172,7 +261,7 @@ export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraft
           </div>
           <div className="text-gray-400 text-sm">
             Total: <span className="text-white font-semibold">{totalPacks} packs</span>
-            {sets.length > 0 && (
+            {source === 'sets' && sets.length > 0 && (
               <> · Per set: <span className={`font-semibold ${isRounded ? 'text-yellow-400' : 'text-white'}`}>{packsPerSet}</span>
               {isRounded && <span className="text-yellow-400"> (will be rounded)</span>}</>
             )}

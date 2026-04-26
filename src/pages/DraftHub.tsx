@@ -24,6 +24,10 @@ interface RegularConfig {
   sets: PackCatalogEntry[];
   format: DraftFormat;
   packsPerPerson: number;
+  cubeId?: string;
+  cubeName?: string;
+  cubeImageUrl?: string;
+  cubeExternalUrl?: string;
 }
 
 export default function DraftHub() {
@@ -93,7 +97,7 @@ export default function DraftHub() {
   if (step === 'setup') {
     return (
       <RegularDraftSetup
-        onNext={(cfg) => { setConfig(cfg); setStep('preview'); }}
+        onNext={(cfg) => { setConfig(cfg); setStep(cfg.cubeId ? 'seating' : 'preview'); }}
         onStartChaos={handleStartChaos}
       />
     );
