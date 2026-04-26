@@ -119,7 +119,7 @@ export default function DraftHub() {
       <SeatAssignment
         players={activePlayers}
         onConfirm={handleSeatingConfirmed}
-        onBack={() => chaosPlayers ? setStep('setup') : setStep('preview')}
+        onBack={() => chaosPlayers ? setStep('setup') : (config?.cubeId ? setStep('setup') : setStep('preview'))}
       />
     );
   }

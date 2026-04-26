@@ -274,7 +274,7 @@ export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraft
         disabled={!canProceed}
         className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-bold rounded-xl text-base transition-all"
       >
-        {isChaos ? 'Start Draft' : 'Preview Allocation →'}
+        {isChaos ? 'Start Draft' : source === 'cube' ? 'Set Seating →' : 'Preview Allocation →'}
       </button>
     </div>
   );
