@@ -22,6 +22,10 @@ export interface RegularDraftConfig {
   sets: PackCatalogEntry[];
   format: DraftFormat;
   packsPerPerson: number;
+  cubeId?: string;
+  cubeName?: string;
+  cubeImageUrl?: string;
+  cubeExternalUrl?: string;
 }
 
 export interface SetAllocationWithMeta {
@@ -131,6 +135,29 @@ export const useRegularDraftStore = create<RegularDraftStore>((set) => ({
   savePreview: async (config, allocations, overrides) => {
     const uid = auth.currentUser?.uid;
     if (!uid) throw new Error('Not authenticated');
+
+    if (config.cubeId) {
+      const cubeDoc: Record<string, unknown> = {
+        type: config.format === 'Regular Draft' ? 'regular'
+          : config.format === 'Mobius Draft' ? 'mobius'
+          : config.format === 'Sealed' ? 'sealed'
+          : 'team-sealed',
+        createdBy: uid,
+        createdAt: serverTimestamp(),
+        status: 'finalized',
+        players: config.players,
+        packsPerPerson: config.packsPerPerson,
+        cubeId: config.cubeId,
+        finalizedAt: serverTimestamp(),
+        finalizedBy: uid,
+      };
+      if (config.cubeName) cubeDoc.cubeName = config.cubeName;
+      if (config.cubeImageUrl) cubeDoc.cubeImageUrl = config.cubeImageUrl;
+      if (config.cubeExternalUrl) cubeDoc.cubeExternalUrl = config.cubeExternalUrl;
+      const docRef = await addDoc(collection(db, 'drafts'), cubeDoc);
+      set({ savedDraftId: docRef.id });
+      return docRef.id;
+    }
 
     const sets: DraftSetRef[] = allocations.map(a => ({
       catalogId: a.catalogId,
