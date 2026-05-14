@@ -1,5 +1,7 @@
 import { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useDraftHistoryStore } from '../state/draftHistoryStore';
+import { formatArchetype } from '../utils/archetypes';
 import {
   computePlayerAggregates,
   computeHeadToHead,
@@ -88,29 +90,30 @@ export default function Stats() {
               <span className="text-gray-600 text-xs text-right self-center">{agg.tournamentsPlayed}</span>
             </button>
             {expandedPlayer !== null && expandedPlayer.trim().toLowerCase() === agg.normalizedName && (
-              <div className="px-4 pb-3 bg-gray-800/20 border-b border-gray-700/30">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 py-2">
-                  Draft History
-                </p>
-                {expandedHistory.length === 0 ? (
-                  <p className="text-gray-600 text-xs italic">No completed matches found.</p>
+              <div className="bg-gray-800/20 border-b border-gray-700/30">
+{expandedHistory.length === 0 ? (
+                  <p className="text-gray-500 text-sm italic">No completed matches found.</p>
                 ) : (
                   <div className="space-y-1">
                     {expandedHistory.map(dh => (
-                      <div
+                      <Link
                         key={dh.draftId}
-                        className="grid grid-cols-[1fr_70px_40px] text-xs text-gray-400 py-1.5 border-b border-gray-700/20 last:border-0"
+                        to={`/tournament?draft=${dh.draftId}`}
+                        className="grid grid-cols-[90px_1fr_auto_70px] text-sm text-gray-300 px-4 py-2 border-b border-gray-700/20 last:border-0 gap-3 hover:bg-gray-700/30 transition-colors"
                       >
-                        <span className="text-gray-500 font-mono text-[10px] self-center">
-                          {dh.draftType} · {dh.draftId.slice(0, 8)}
+                        <span className="text-gray-500 text-xs self-center">
+                          {dh.createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </span>
-                        <span className="text-right self-center">
+                        <span className="self-center truncate">{dh.title}</span>
+                        <span className="text-gray-400 text-xs self-center whitespace-nowrap">
+                          {formatArchetype(dh.primaryColors, dh.splashColors)}
+                        </span>
+                        <span className="text-right self-center font-medium">
                           {dh.matchTies > 0
                             ? `${dh.matchWins}–${dh.matchLosses}–${dh.matchTies}`
                             : `${dh.matchWins}–${dh.matchLosses}`}
                         </span>
-                        <span className="text-right text-gray-600 self-center">{dh.gameWins}gw</span>
-                      </div>
+                      </Link>
                     ))}
                   </div>
                 )}
@@ -174,21 +177,33 @@ export default function Stats() {
                   <p className="text-xs text-gray-400 mt-1">{h2hResult.nameB}</p>
                 </div>
               </div>
-              <div className="space-y-1">
-                {h2hResult.matches.map((m, idx) => (
-                  <div
-                    key={`${m.draftId}-${idx}`}
-                    className="flex items-center text-sm bg-gray-800/50 border border-gray-700/30 rounded-lg px-3 py-2"
-                  >
-                    <span className={`font-semibold flex-1 ${m.result === 'aWin' ? 'text-white' : 'text-gray-500'}`}>
-                      {h2hResult.nameA}
-                    </span>
-                    <span className="text-gray-600 text-xs font-mono px-3">{m.aGames} – {m.bGames}</span>
-                    <span className={`font-semibold flex-1 text-right ${m.result === 'bWin' ? 'text-white' : 'text-gray-500'}`}>
-                      {h2hResult.nameB}
-                    </span>
-                  </div>
-                ))}
+              <div className="space-y-2">
+                {h2hResult.matches.map((m, idx) => {
+                  const archA = formatArchetype(m.aPrimaryColors, m.aSplashColors);
+                  const archB = formatArchetype(m.bPrimaryColors, m.bSplashColors);
+                  return (
+                    <Link
+                      key={`${m.draftId}-${idx}`}
+                      to={`/tournament?draft=${m.draftId}`}
+                      className="block bg-gray-800/50 border border-gray-700/30 rounded-lg px-4 py-3 hover:bg-gray-700/40 transition-colors"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="flex-1">
+                          <p className={`font-bold text-base ${m.result === 'aWin' ? 'text-white' : 'text-gray-500'}`}>{h2hResult.nameA}</p>
+                          {archA && <p className="text-xs text-gray-500 mt-0.5">{archA}</p>}
+                        </div>
+                        <span className="text-xl font-bold text-gray-300 shrink-0 tabular-nums">{m.aGames}–{m.bGames}</span>
+                        <div className="flex-1 text-right">
+                          <p className={`font-bold text-base ${m.result === 'bWin' ? 'text-white' : 'text-gray-500'}`}>{h2hResult.nameB}</p>
+                          {archB && <p className="text-xs text-gray-500 mt-0.5">{archB}</p>}
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-gray-600 mt-2">
+                        {m.createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {m.title}
+                      </p>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           )}

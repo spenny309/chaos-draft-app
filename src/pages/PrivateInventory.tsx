@@ -10,11 +10,7 @@ export default function PrivateInventory() {
   const [selectedEntry, setSelectedEntry] = useState<PackCatalogEntry | null>(null);
   const [addCount, setAddCount] = useState('');
   const [isAdding, setIsAdding] = useState(false);
-
-  const handleSelect = (entry: PackCatalogEntry) => {
-    setSelectedEntry(entry);
-    setAddCount('1');
-  };
+  const [searchKey, setSearchKey] = useState(0);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,6 +19,7 @@ export default function PrivateInventory() {
     await addOrUpdateItem(selectedEntry.id, selectedEntry.name, selectedEntry.imageUrl, Math.max(1, Number(addCount)));
     setSelectedEntry(null);
     setAddCount('');
+    setSearchKey(k => k + 1);
     setIsAdding(false);
   };
 
@@ -34,31 +31,50 @@ export default function PrivateInventory() {
       </div>
 
       {/* Add pack */}
-      <div className="bg-gray-800 rounded-xl p-5 border border-gray-700 space-y-3">
-        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Add Packs</h3>
-        <PackCatalogSearch onSelect={handleSelect} clearOnSelect={false} />
-        {selectedEntry && (
-          <form onSubmit={handleAdd} className="flex items-center gap-3 mt-2">
-            <img src={selectedEntry.imageUrl} alt={selectedEntry.name} className="w-8 h-10 object-cover rounded" />
-            <span className="text-white text-sm flex-1">{selectedEntry.name}</span>
+      <form onSubmit={handleAdd} className="p-6 bg-gray-800 rounded-2xl shadow-lg border border-gray-700">
+        <div className="flex flex-col md:flex-row md:items-end gap-4">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-300 mb-1">Pack</label>
+            <div className="relative">
+              <PackCatalogSearch
+                key={searchKey}
+                onSelect={entry => setSelectedEntry(entry)}
+                clearOnSelect={false}
+                placeholder="Search pack catalog to add…"
+              />
+              {selectedEntry && (
+                <button
+                  type="button"
+                  onClick={() => { setSelectedEntry(null); setSearchKey(k => k + 1); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white text-sm"
+                  aria-label="Clear selection"
+                >✕</button>
+              )}
+            </div>
+          </div>
+          <div className="w-full md:w-24">
+            <label className="block text-sm font-medium text-gray-300 mb-1">Qty</label>
             <input
               type="number"
               min="1"
               value={addCount}
               onChange={e => setAddCount(e.target.value)}
-              className="w-20 px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-white text-sm text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
+              placeholder="0"
+              className="block w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+          </div>
+          <div className="w-full md:w-auto">
+            <label className="block text-sm font-medium text-gray-300 mb-1">&nbsp;</label>
             <button
               type="submit"
-              disabled={isAdding}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm rounded-lg font-medium"
+              disabled={isAdding || !selectedEntry}
+              className="w-full md:w-auto py-2 px-6 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-blue-500/30 text-base disabled:bg-gray-500 disabled:cursor-not-allowed"
             >
-              Add
+              {isAdding ? 'Adding…' : 'Add Pack'}
             </button>
-            <button type="button" onClick={() => setSelectedEntry(null)} className="px-2 py-1.5 text-gray-400 hover:text-white text-sm">✕</button>
-          </form>
-        )}
-      </div>
+          </div>
+        </div>
+      </form>
 
       {/* Inventory grid */}
       {isLoading && <div className="text-gray-400">Loading…</div>}

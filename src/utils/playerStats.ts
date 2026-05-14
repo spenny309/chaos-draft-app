@@ -1,4 +1,5 @@
-import type { Draft, DraftType } from '../types';
+import type { Draft, DraftType, MtgColor } from '../types';
+import { draftTitle } from './draftTitle';
 
 export interface PlayerAggregate {
   displayName: string;
@@ -17,6 +18,12 @@ export interface HeadToHeadMatch {
   result: 'aWin' | 'bWin' | 'tie';
   aGames: number;
   bGames: number;
+  title: string;
+  createdAt: Date;
+  aPrimaryColors: MtgColor[];
+  aSplashColors: MtgColor[];
+  bPrimaryColors: MtgColor[];
+  bSplashColors: MtgColor[];
 }
 
 export interface HeadToHeadRecord {
@@ -31,6 +38,10 @@ export interface HeadToHeadRecord {
 export interface PlayerDraftResult {
   draftId: string;
   draftType: DraftType;
+  title: string;
+  createdAt: Date;
+  primaryColors: MtgColor[];
+  splashColors: MtgColor[];
   matchWins: number;
   matchLosses: number;
   matchTies: number;
@@ -136,7 +147,20 @@ export function computeHeadToHead(nameA: string, nameB: string, drafts: Draft[])
         else if (result === 'bWin') record.bWins++;
         else record.ties++;
 
-        record.matches.push({ draftId: draft.id, result, aGames, bGames });
+        const aPlayer = aIsP1 ? p1 : p2;
+        const bPlayer = aIsP1 ? p2 : p1;
+        record.matches.push({
+          draftId: draft.id,
+          result,
+          aGames,
+          bGames,
+          title: draftTitle(draft),
+          createdAt: draft.createdAt.toDate(),
+          aPrimaryColors: aPlayer.primaryColors ?? [],
+          aSplashColors: aPlayer.splashColors ?? [],
+          bPrimaryColors: bPlayer.primaryColors ?? [],
+          bSplashColors: bPlayer.splashColors ?? [],
+        });
       }
     }
   }
@@ -156,6 +180,10 @@ export function computePlayerDraftHistory(name: string, drafts: Draft[]): Player
     const result: PlayerDraftResult = {
       draftId: draft.id,
       draftType: draft.type,
+      title: draftTitle(draft),
+      createdAt: draft.createdAt.toDate(),
+      primaryColors: player.primaryColors ?? [],
+      splashColors: player.splashColors ?? [],
       matchWins: 0, matchLosses: 0, matchTies: 0,
       gameWins: 0, gameLosses: 0,
     };

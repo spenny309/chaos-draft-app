@@ -64,6 +64,7 @@ function ChaosInventory() {
   const [newPackInPerson, setNewPackInPerson] = useState("");
   const [newPackInTransit, setNewPackInTransit] = useState("");
   const [selectedCatalogEntry, setSelectedCatalogEntry] = useState<PackCatalogEntry | null>(null);
+  const [searchKey, setSearchKey] = useState(0);
 
   const [isAdding, setIsAdding] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -125,6 +126,7 @@ function ChaosInventory() {
     setNewPackInPerson("");
     setNewPackInTransit("");
     setSelectedCatalogEntry(null);
+    setSearchKey(k => k + 1);
     setIsAdding(false);
   };
 
@@ -164,28 +166,33 @@ function ChaosInventory() {
       {/* Add New Pack Form */}
       <form
         onSubmit={handleAdd}
-        className="p-6 bg-gray-800 rounded-2xl shadow-lg border border-gray-700 space-y-4"
+        className="p-6 bg-gray-800 rounded-2xl shadow-lg border border-gray-700"
       >
-        <div className="flex flex-col md:flex-row gap-4">
+        <div className="flex flex-col md:flex-row md:items-end gap-4">
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-300 mb-1">
               Pack
             </label>
-            <PackCatalogSearch
-              onSelect={entry => {
-                setSelectedCatalogEntry(entry);
-                setNewPackName(entry.name);
-                setNewPackImageUrl(entry.imageUrl);
-              }}
-              clearOnSelect={false}
-              placeholder="Search pack catalog to add…"
-            />
-            {selectedCatalogEntry && (
-              <div className="flex items-center gap-2 text-sm text-gray-300 mt-2">
-                <img src={selectedCatalogEntry.imageUrl} className="w-6 h-8 object-cover rounded" alt={selectedCatalogEntry.name} />
-                {selectedCatalogEntry.name}
-              </div>
-            )}
+            <div className="relative">
+              <PackCatalogSearch
+                key={searchKey}
+                onSelect={entry => {
+                  setSelectedCatalogEntry(entry);
+                  setNewPackName(entry.name);
+                  setNewPackImageUrl(entry.imageUrl);
+                }}
+                clearOnSelect={false}
+                placeholder="Search pack catalog to add…"
+              />
+              {selectedCatalogEntry && (
+                <button
+                  type="button"
+                  onClick={() => { setSelectedCatalogEntry(null); setNewPackName(""); setNewPackImageUrl(""); setSearchKey(k => k + 1); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white text-sm"
+                  aria-label="Clear selection"
+                >✕</button>
+              )}
+            </div>
           </div>
           <div className="w-full md:w-24">
             <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -194,7 +201,7 @@ function ChaosInventory() {
             <input
               type="number"
               min={0}
-              className="mt-1 block w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="block w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={newPackInPerson}
               placeholder="0"
               onChange={(e) => setNewPackInPerson(e.target.value)}
@@ -207,20 +214,23 @@ function ChaosInventory() {
             <input
               type="number"
               min={0}
-              className="mt-1 block w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="block w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={newPackInTransit}
               placeholder="0"
               onChange={(e) => setNewPackInTransit(e.target.value)}
             />
           </div>
+          <div className="w-full md:w-auto">
+            <label className="block text-sm font-medium text-gray-300 mb-1">&nbsp;</label>
+            <button
+              type="submit"
+              disabled={isAdding || !selectedCatalogEntry}
+              className="w-full md:w-auto py-2 px-6 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-blue-500/30 text-base disabled:bg-gray-500 disabled:cursor-not-allowed"
+            >
+              {isAdding ? "Adding..." : "Add Pack"}
+            </button>
+          </div>
         </div>
-        <button
-          type="submit"
-          disabled={isAdding}
-          className="w-full md:w-auto py-3 px-6 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-blue-500/30 text-base disabled:bg-gray-500"
-        >
-          {isAdding ? "Adding..." : "Add Pack"}
-        </button>
       </form>
 
       {/* Pack Grid */}

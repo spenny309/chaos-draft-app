@@ -27,6 +27,7 @@ export default function PackCatalogSearch({
   const handleSelect = (entry: PackCatalogEntry) => {
     onSelect(entry);
     if (clearOnSelect) setQuery('');
+    else setQuery(entry.name);
     setOpen(false);
   };
 
