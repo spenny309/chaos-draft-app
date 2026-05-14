@@ -43,8 +43,7 @@ export default function Tournament() {
   const t = selectedDraft.tournament!;
   const title = draftTitle(selectedDraft);
   const date = selectedDraft.createdAt?.toDate().toLocaleDateString() ?? 'Unknown date';
-  const playerNames = selectedDraft.players.map(p => p.name).join(', ');
-  const isFinalized = t.status === 'finalized';
+const isFinalized = t.status === 'finalized';
   const showDropdown = !draftIdParam && activeDrafts.length >= 2;
 
   return (
@@ -61,8 +60,6 @@ export default function Tournament() {
               ● Active
             </span>
           )}
-          <span className="text-sm text-gray-400">{playerNames}</span>
-          <span className="text-sm text-gray-500">·</span>
           <span className="text-sm text-gray-400">{date}</span>
           {!isFinalized && (
             <span className="text-sm text-gray-400">· Round {t.currentRound} of {t.totalRounds}</span>
