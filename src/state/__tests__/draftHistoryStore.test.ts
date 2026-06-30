@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Draft, PairingResult } from '../../types';
+import type { Draft, DraftPlayer, PairingResult } from '../../types';
 
 const {
   mockDoc,
@@ -92,7 +92,7 @@ function makeDraft(pairingAResult?: PairingResult): Draft {
   };
 }
 
-function makePlayerDraft(players = [
+function makePlayerDraft(players: DraftPlayer[] = [
   { id: 'p1', name: 'One', userId: 'user-1' },
   { id: 'p2', name: 'Two', userId: 'user-2', deckPhotoUrl: 'https://old.test/photo.jpg', deckPhotoPath: 'deckPhotos/draft-1/p2/old.jpg' },
 ]): Draft {
