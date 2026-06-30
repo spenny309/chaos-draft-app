@@ -235,6 +235,49 @@ describe('useDraftHistoryStore player metadata writes', () => {
     });
   });
 
+  it('returns the previous deck photo path from the latest transaction snapshot', async () => {
+    const transactionUpdate = vi.fn();
+    mockRunTransaction.mockImplementation(async (_db, callback) => {
+      await callback({
+        get: vi.fn(async () => ({
+          exists: () => true,
+          data: () => makePlayerDraft([
+            {
+              id: 'p1',
+              name: 'One',
+              userId: 'user-1',
+              deckPhotoUrl: 'https://latest.test/photo.jpg',
+              deckPhotoPath: 'deckPhotos/draft-1/p1/latest.jpg',
+              deckPhotoUploadedAt: 'EARLIER' as any,
+            },
+          ]),
+        })),
+        update: transactionUpdate,
+      });
+    });
+
+    useDraftHistoryStore.setState({
+      drafts: [makePlayerDraft([
+        {
+          id: 'p1',
+          name: 'One',
+          userId: 'user-1',
+          deckPhotoUrl: 'https://stale.test/photo.jpg',
+          deckPhotoPath: 'deckPhotos/draft-1/p1/stale.jpg',
+        },
+      ])],
+      loading: false,
+      error: null,
+    });
+
+    const result = await useDraftHistoryStore.getState().setPlayerDeckPhoto('draft-1', 'p1', {
+      url: 'https://new.test/photo.jpg',
+      path: 'deckPhotos/draft-1/p1/new.jpg',
+    });
+
+    expect(result.previousPath).toBe('deckPhotos/draft-1/p1/latest.jpg');
+  });
+
   it('removes deck photo metadata without removing color identity', async () => {
     const transactionUpdate = vi.fn();
     mockRunTransaction.mockImplementation(async (_db, callback) => {
@@ -264,5 +307,29 @@ describe('useDraftHistoryStore player metadata writes', () => {
     expect(updatedPlayer).not.toHaveProperty('deckPhotoUrl');
     expect(updatedPlayer).not.toHaveProperty('deckPhotoPath');
     expect(updatedPlayer).not.toHaveProperty('deckPhotoUploadedAt');
+  });
+
+  it('rejects deck photo metadata updates when the target player is missing', async () => {
+    const transactionUpdate = vi.fn();
+    mockRunTransaction.mockImplementation(async (_db, callback) => {
+      await callback({
+        get: vi.fn(async () => ({
+          exists: () => true,
+          data: () => makePlayerDraft([
+            { id: 'p2', name: 'Two', userId: 'user-2' },
+          ]),
+        })),
+        update: transactionUpdate,
+      });
+    });
+
+    await expect(
+      useDraftHistoryStore.getState().setPlayerDeckPhoto('draft-1', 'p1', {
+        url: 'https://new.test/photo.jpg',
+        path: 'deckPhotos/draft-1/p1/new.jpg',
+      }),
+    ).rejects.toThrow('Draft player not found.');
+
+    expect(transactionUpdate).not.toHaveBeenCalled();
   });
 });

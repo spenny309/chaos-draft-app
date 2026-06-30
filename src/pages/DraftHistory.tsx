@@ -58,7 +58,7 @@ interface PlayersWithArchetypeProps {
     draftId: string,
     playerId: string,
     photo: { url: string; path: string } | null
-  ) => Promise<void>;
+  ) => Promise<{ previousPath?: string }>;
 }
 
 function PlayersWithArchetype({
@@ -139,10 +139,9 @@ function PlayersWithArchetype({
 
     try {
       uploaded = await uploadDeckPhoto(draft.id, editingPlayer.id, file);
-      const oldPath = editingPlayer.deckPhotoPath;
-      await setPlayerDeckPhoto(draft.id, editingPlayer.id, uploaded);
-      if (oldPath) {
-        deleteDeckPhoto(oldPath).catch(err => console.error('Failed to delete replaced deck photo:', err));
+      const { previousPath } = await setPlayerDeckPhoto(draft.id, editingPlayer.id, uploaded);
+      if (previousPath) {
+        deleteDeckPhoto(previousPath).catch(err => console.error('Failed to delete replaced deck photo:', err));
       }
     } catch (err) {
       if (uploaded) {
@@ -160,11 +159,12 @@ function PlayersWithArchetype({
     if (!editingPlayer?.deckPhotoPath) return;
     setPhotoSaving(true);
     setPhotoError(null);
-    const oldPath = editingPlayer.deckPhotoPath;
 
     try {
-      await setPlayerDeckPhoto(draft.id, editingPlayer.id, null);
-      deleteDeckPhoto(oldPath).catch(err => console.error('Failed to delete removed deck photo:', err));
+      const { previousPath } = await setPlayerDeckPhoto(draft.id, editingPlayer.id, null);
+      if (previousPath) {
+        deleteDeckPhoto(previousPath).catch(err => console.error('Failed to delete removed deck photo:', err));
+      }
     } catch (err) {
       console.error('Failed to remove deck photo:', err);
       setPhotoError('Failed to remove deck photo. Please try again.');

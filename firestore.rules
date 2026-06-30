@@ -18,6 +18,79 @@ service cloud.firestore {
       return isApproved() && userDoc().role == 'admin';
     }
 
+    function isProtectedDraftFieldUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['status', 'finalizedAt', 'finalizedBy', 'allocation']);
+    }
+
+    function changesOnlyPlayerMetadata(i) {
+      return request.resource.data.players[i].diff(resource.data.players[i])
+        .affectedKeys()
+        .hasOnly([
+          'primaryColors',
+          'splashColors',
+          'deckPhotoUrl',
+          'deckPhotoPath',
+          'deckPhotoUploadedAt'
+        ]);
+    }
+
+    function playerSlotUpdateAllowed(i) {
+      return i >= resource.data.players.size()
+        || request.resource.data.players[i] == resource.data.players[i]
+        || (
+          resource.data.players[i].userId == request.auth.uid
+          && changesOnlyPlayerMetadata(i)
+        );
+    }
+
+    function ownedPlayerMetadataUpdate() {
+      return resource.data.keys().hasAll(['players'])
+        && request.resource.data.keys().hasAll(['players'])
+        && request.resource.data.players.size() == resource.data.players.size()
+        && resource.data.players.size() <= 32
+        && playerSlotUpdateAllowed(0)
+        && playerSlotUpdateAllowed(1)
+        && playerSlotUpdateAllowed(2)
+        && playerSlotUpdateAllowed(3)
+        && playerSlotUpdateAllowed(4)
+        && playerSlotUpdateAllowed(5)
+        && playerSlotUpdateAllowed(6)
+        && playerSlotUpdateAllowed(7)
+        && playerSlotUpdateAllowed(8)
+        && playerSlotUpdateAllowed(9)
+        && playerSlotUpdateAllowed(10)
+        && playerSlotUpdateAllowed(11)
+        && playerSlotUpdateAllowed(12)
+        && playerSlotUpdateAllowed(13)
+        && playerSlotUpdateAllowed(14)
+        && playerSlotUpdateAllowed(15)
+        && playerSlotUpdateAllowed(16)
+        && playerSlotUpdateAllowed(17)
+        && playerSlotUpdateAllowed(18)
+        && playerSlotUpdateAllowed(19)
+        && playerSlotUpdateAllowed(20)
+        && playerSlotUpdateAllowed(21)
+        && playerSlotUpdateAllowed(22)
+        && playerSlotUpdateAllowed(23)
+        && playerSlotUpdateAllowed(24)
+        && playerSlotUpdateAllowed(25)
+        && playerSlotUpdateAllowed(26)
+        && playerSlotUpdateAllowed(27)
+        && playerSlotUpdateAllowed(28)
+        && playerSlotUpdateAllowed(29)
+        && playerSlotUpdateAllowed(30)
+        && playerSlotUpdateAllowed(31);
+    }
+
+    function nonAdminDraftUpdateAllowed() {
+      return !isProtectedDraftFieldUpdate()
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['players'])
+          || ownedPlayerMetadataUpdate()
+        );
+    }
+
     // Users — anyone can create their own; only admin can read all or change status/role
     match /users/{userId} {
       allow read: if isAuthed() && (request.auth.uid == userId || isAdmin());
@@ -74,8 +147,7 @@ service cloud.firestore {
       allow create: if isApproved();
       allow update: if isApproved() && (
         isAdmin()
-        || !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['status', 'finalizedAt', 'finalizedBy', 'allocation'])
+        || nonAdminDraftUpdateAllowed()
       );
       allow delete: if isAdmin();
     }

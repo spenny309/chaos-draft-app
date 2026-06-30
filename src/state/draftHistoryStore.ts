@@ -36,16 +36,22 @@ interface DraftHistoryState {
     draftId: string,
     playerId: string,
     photo: { url: string; path: string } | null
-  ) => Promise<void>;
+  ) => Promise<{ previousPath?: string }>;
+}
+
+interface DraftPlayerUpdateResult {
+  players: DraftPlayer[];
+  previousPlayer: DraftPlayer;
 }
 
 async function updateDraftPlayerInTransaction(
   draftId: string,
   playerId: string,
   updatePlayer: (player: DraftPlayer) => DraftPlayer,
-): Promise<DraftPlayer[] | null> {
+): Promise<DraftPlayerUpdateResult | null> {
   const draftRef = doc(db, 'drafts', draftId);
   let updatedPlayers: DraftPlayer[] | null = null;
+  let previousPlayer: DraftPlayer | null = null;
 
   await runTransaction(db, async (transaction) => {
     const draftSnap = await transaction.get(draftRef);
@@ -58,6 +64,7 @@ async function updateDraftPlayerInTransaction(
     updatedPlayers = players.map(player => {
       if (player.id !== playerId) return player;
       found = true;
+      previousPlayer = player;
       return updatePlayer(player);
     });
 
@@ -69,7 +76,9 @@ async function updateDraftPlayerInTransaction(
     transaction.update(draftRef, { players: updatedPlayers });
   });
 
-  return updatedPlayers;
+  if (!updatedPlayers || !previousPlayer) return null;
+
+  return { players: updatedPlayers, previousPlayer };
 }
 
 export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
@@ -260,7 +269,7 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
     const sortedPrimary = sortColors(primary);
     const sortedSplash = sortColors(splash);
 
-    const updatedPlayers = await updateDraftPlayerInTransaction(draftId, playerId, player => {
+    const result = await updateDraftPlayerInTransaction(draftId, playerId, player => {
       if (sortedPrimary.length === 0) {
         const { primaryColors: _primary, splashColors: _splash, ...rest } = player;
         return rest;
@@ -273,11 +282,11 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
       };
     });
 
-    if (!updatedPlayers) return;
+    if (!result) return;
 
     set(state => ({
       drafts: state.drafts.map(d =>
-        d.id === draftId ? { ...d, players: updatedPlayers } : d,
+        d.id === draftId ? { ...d, players: result.players } : d,
       ),
     }));
   },
@@ -285,7 +294,7 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
   setPlayerDeckPhoto: async (draftId, playerId, photo) => {
     const uploadedAt = photo ? Timestamp.now() : null;
 
-    const updatedPlayers = await updateDraftPlayerInTransaction(draftId, playerId, player => {
+    const result = await updateDraftPlayerInTransaction(draftId, playerId, player => {
       const {
         deckPhotoUrl: _oldUrl,
         deckPhotoPath: _oldPath,
@@ -303,12 +312,14 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
       };
     });
 
-    if (!updatedPlayers) return;
+    if (!result) throw new Error('Draft player not found.');
 
     set(state => ({
       drafts: state.drafts.map(d =>
-        d.id === draftId ? { ...d, players: updatedPlayers } : d,
+        d.id === draftId ? { ...d, players: result.players } : d,
       ),
     }));
+
+    return { previousPath: result.previousPlayer.deckPhotoPath };
   },
 }));
