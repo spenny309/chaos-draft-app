@@ -32,6 +32,44 @@ interface DraftHistoryState {
   addRound: (draftId: string, pairings: TournamentPairing[]) => Promise<void>;
   finalizeTournament: (draftId: string, userId: string) => Promise<void>;
   setPlayerArchetype: (draftId: string, playerId: string, primary: MtgColor[], splash: MtgColor[]) => Promise<void>;
+  setPlayerDeckPhoto: (
+    draftId: string,
+    playerId: string,
+    photo: { url: string; path: string } | null
+  ) => Promise<void>;
+}
+
+async function updateDraftPlayerInTransaction(
+  draftId: string,
+  playerId: string,
+  updatePlayer: (player: DraftPlayer) => DraftPlayer,
+): Promise<DraftPlayer[] | null> {
+  const draftRef = doc(db, 'drafts', draftId);
+  let updatedPlayers: DraftPlayer[] | null = null;
+
+  await runTransaction(db, async (transaction) => {
+    const draftSnap = await transaction.get(draftRef);
+    if (!draftSnap.exists()) return;
+
+    const latestDraft = draftSnap.data() as Draft;
+    const players = latestDraft.players ?? [];
+    let found = false;
+
+    updatedPlayers = players.map(player => {
+      if (player.id !== playerId) return player;
+      found = true;
+      return updatePlayer(player);
+    });
+
+    if (!found) {
+      updatedPlayers = null;
+      return;
+    }
+
+    transaction.update(draftRef, { players: updatedPlayers });
+  });
+
+  return updatedPlayers;
 }
 
 export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
@@ -219,18 +257,15 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
   },
 
   setPlayerArchetype: async (draftId, playerId, primary, splash) => {
-    const draft = get().drafts.find(d => d.id === draftId);
-    if (!draft) return;
-
     const sortedPrimary = sortColors(primary);
     const sortedSplash = sortColors(splash);
 
-    const updatedPlayers: DraftPlayer[] = (draft.players ?? []).map(p => {
-      if (p.id !== playerId) return p;
+    const updatedPlayers = await updateDraftPlayerInTransaction(draftId, playerId, player => {
       if (sortedPrimary.length === 0) {
-        return { id: p.id, name: p.name, userId: p.userId };
+        const { primaryColors: _primary, splashColors: _splash, ...rest } = player;
+        return rest;
       }
-      const { splashColors: _old, ...rest } = p;
+      const { splashColors: _oldSplash, ...rest } = player;
       return {
         ...rest,
         primaryColors: sortedPrimary,
@@ -238,7 +273,38 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
       };
     });
 
-    await updateDoc(doc(db, 'drafts', draftId), { players: updatedPlayers });
+    if (!updatedPlayers) return;
+
+    set(state => ({
+      drafts: state.drafts.map(d =>
+        d.id === draftId ? { ...d, players: updatedPlayers } : d,
+      ),
+    }));
+  },
+
+  setPlayerDeckPhoto: async (draftId, playerId, photo) => {
+    const uploadedAt = photo ? Timestamp.now() : null;
+
+    const updatedPlayers = await updateDraftPlayerInTransaction(draftId, playerId, player => {
+      const {
+        deckPhotoUrl: _oldUrl,
+        deckPhotoPath: _oldPath,
+        deckPhotoUploadedAt: _oldUploadedAt,
+        ...rest
+      } = player;
+
+      if (!photo) return rest;
+
+      return {
+        ...rest,
+        deckPhotoUrl: photo.url,
+        deckPhotoPath: photo.path,
+        deckPhotoUploadedAt: uploadedAt!,
+      };
+    });
+
+    if (!updatedPlayers) return;
+
     set(state => ({
       drafts: state.drafts.map(d =>
         d.id === draftId ? { ...d, players: updatedPlayers } : d,

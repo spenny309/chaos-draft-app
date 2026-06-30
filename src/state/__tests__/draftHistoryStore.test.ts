@@ -92,6 +92,20 @@ function makeDraft(pairingAResult?: PairingResult): Draft {
   };
 }
 
+function makePlayerDraft(players = [
+  { id: 'p1', name: 'One', userId: 'user-1' },
+  { id: 'p2', name: 'Two', userId: 'user-2', deckPhotoUrl: 'https://old.test/photo.jpg', deckPhotoPath: 'deckPhotos/draft-1/p2/old.jpg' },
+]): Draft {
+  return {
+    id: 'draft-1',
+    type: 'regular',
+    createdBy: 'creator',
+    createdAt: 'CREATED' as any,
+    status: 'preview',
+    players,
+  };
+}
+
 describe('useDraftHistoryStore tournament result writes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -138,5 +152,117 @@ describe('useDraftHistoryStore tournament result writes', () => {
         submittedAt: 'NOW',
       },
     });
+  });
+});
+
+describe('useDraftHistoryStore player metadata writes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useDraftHistoryStore.setState({
+      drafts: [makePlayerDraft()],
+      loading: false,
+      error: null,
+    });
+  });
+
+  it('updates player archetype against the latest transaction snapshot without removing deck photo metadata', async () => {
+    const transactionUpdate = vi.fn();
+    mockRunTransaction.mockImplementation(async (_db, callback) => {
+      await callback({
+        get: vi.fn(async () => ({
+          exists: () => true,
+          data: () => makePlayerDraft([
+            { id: 'p1', name: 'One', userId: 'user-1' },
+            {
+              id: 'p2',
+              name: 'Two',
+              userId: 'user-2',
+              deckPhotoUrl: 'https://old.test/photo.jpg',
+              deckPhotoPath: 'deckPhotos/draft-1/p2/old.jpg',
+              deckPhotoUploadedAt: 'EARLIER' as any,
+            },
+          ]),
+        })),
+        update: transactionUpdate,
+      });
+    });
+
+    useDraftHistoryStore.setState({ drafts: [makePlayerDraft()], loading: false, error: null });
+
+    await useDraftHistoryStore.getState().setPlayerArchetype('draft-1', 'p2', ['U', 'B'], ['R']);
+
+    const updatedPlayers = transactionUpdate.mock.calls[0][1].players;
+    expect(updatedPlayers[1]).toMatchObject({
+      id: 'p2',
+      primaryColors: ['U', 'B'],
+      splashColors: ['R'],
+      deckPhotoUrl: 'https://old.test/photo.jpg',
+      deckPhotoPath: 'deckPhotos/draft-1/p2/old.jpg',
+    });
+  });
+
+  it('sets deck photo metadata without removing color identity', async () => {
+    const transactionUpdate = vi.fn();
+    mockRunTransaction.mockImplementation(async (_db, callback) => {
+      await callback({
+        get: vi.fn(async () => ({
+          exists: () => true,
+          data: () => makePlayerDraft([
+            {
+              id: 'p1',
+              name: 'One',
+              userId: 'user-1',
+              primaryColors: ['G'],
+            },
+          ]),
+        })),
+        update: transactionUpdate,
+      });
+    });
+
+    await useDraftHistoryStore.getState().setPlayerDeckPhoto('draft-1', 'p1', {
+      url: 'https://new.test/photo.jpg',
+      path: 'deckPhotos/draft-1/p1/new.jpg',
+    });
+
+    const updatedPlayers = transactionUpdate.mock.calls[0][1].players;
+    expect(updatedPlayers[0]).toMatchObject({
+      id: 'p1',
+      primaryColors: ['G'],
+      deckPhotoUrl: 'https://new.test/photo.jpg',
+      deckPhotoPath: 'deckPhotos/draft-1/p1/new.jpg',
+      deckPhotoUploadedAt: 'NOW',
+    });
+  });
+
+  it('removes deck photo metadata without removing color identity', async () => {
+    const transactionUpdate = vi.fn();
+    mockRunTransaction.mockImplementation(async (_db, callback) => {
+      await callback({
+        get: vi.fn(async () => ({
+          exists: () => true,
+          data: () => makePlayerDraft([
+            {
+              id: 'p1',
+              name: 'One',
+              userId: 'user-1',
+              primaryColors: ['R', 'G'],
+              deckPhotoUrl: 'https://old.test/photo.jpg',
+              deckPhotoPath: 'deckPhotos/draft-1/p1/old.jpg',
+              deckPhotoUploadedAt: 'EARLIER' as any,
+            },
+          ]),
+        })),
+        update: transactionUpdate,
+      });
+    });
+
+    await useDraftHistoryStore.getState().setPlayerDeckPhoto('draft-1', 'p1', null);
+
+    const updatedPlayer = transactionUpdate.mock.calls[0][1].players[0];
+    expect(updatedPlayer.primaryColors).toEqual(['R', 'G']);
+    expect(updatedPlayer).not.toHaveProperty('deckPhotoUrl');
+    expect(updatedPlayer).not.toHaveProperty('deckPhotoPath');
+    expect(updatedPlayer).not.toHaveProperty('deckPhotoUploadedAt');
   });
 });
