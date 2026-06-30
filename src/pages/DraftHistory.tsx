@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useRef, useState, useMemo } from "react";
 import { Link } from 'react-router-dom';
 import { useDraftHistoryStore } from "../state/draftHistoryStore";
 import { useInventoryStore } from "../state/inventoryStore";
@@ -9,6 +9,7 @@ import type { Draft, DraftPackRef, DraftPlayer, MtgColor } from "../types";
 import { computeStandings } from '../utils/swissPairings';
 import { formatArchetype } from '../utils/archetypes';
 import { draftTitle } from '../utils/draftTitle';
+import { deleteDeckPhoto, uploadDeckPhoto } from '../utils/deckPhotos';
 
 const ALL_COLORS: MtgColor[] = ['W', 'U', 'B', 'R', 'G'];
 
@@ -53,9 +54,20 @@ interface PlayersWithArchetypeProps {
   currentUserId: string | undefined;
   isAdmin: boolean;
   setPlayerArchetype: (draftId: string, playerId: string, primary: MtgColor[], splash: MtgColor[]) => Promise<void>;
+  setPlayerDeckPhoto: (
+    draftId: string,
+    playerId: string,
+    photo: { url: string; path: string } | null
+  ) => Promise<void>;
 }
 
-function PlayersWithArchetype({ draft, currentUserId, isAdmin, setPlayerArchetype }: PlayersWithArchetypeProps) {
+function PlayersWithArchetype({
+  draft,
+  currentUserId,
+  isAdmin,
+  setPlayerArchetype,
+  setPlayerDeckPhoto,
+}: PlayersWithArchetypeProps) {
   const myPlayer = draft.players.find(p => p.userId === currentUserId) ?? null;
 
   const canEdit = (playerId: string) =>
@@ -73,6 +85,10 @@ function PlayersWithArchetype({ draft, currentUserId, isAdmin, setPlayerArchetyp
     autoOpenPlayer ? initPipState(autoOpenPlayer) : EMPTY_PIPS,
   );
   const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [photoViewerPlayer, setPhotoViewerPlayer] = useState<DraftPlayer | null>(null);
+  const [photoSaving, setPhotoSaving] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   const openEditor = (player: DraftPlayer) => {
     setPips(initPipState(player));
@@ -109,6 +125,48 @@ function PlayersWithArchetype({ draft, currentUserId, isAdmin, setPlayerArchetyp
     ? (draft.players.find(p => p.id === editingPlayerId) ?? null)
     : null;
 
+  const handlePhotoSelected = async (file: File | undefined) => {
+    if (!file || !editingPlayer) return;
+    setPhotoSaving(true);
+    setPhotoError(null);
+    let uploaded: { url: string; path: string } | null = null;
+
+    try {
+      uploaded = await uploadDeckPhoto(draft.id, editingPlayer.id, file);
+      const oldPath = editingPlayer.deckPhotoPath;
+      await setPlayerDeckPhoto(draft.id, editingPlayer.id, uploaded);
+      if (oldPath) {
+        deleteDeckPhoto(oldPath).catch(err => console.error('Failed to delete replaced deck photo:', err));
+      }
+    } catch (err) {
+      if (uploaded) {
+        deleteDeckPhoto(uploaded.path).catch(cleanupErr => console.error('Failed to clean up uploaded deck photo:', cleanupErr));
+      }
+      console.error('Failed to save deck photo:', err);
+      setPhotoError('Failed to save deck photo. Please try again.');
+    } finally {
+      setPhotoSaving(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    if (!editingPlayer?.deckPhotoPath) return;
+    setPhotoSaving(true);
+    setPhotoError(null);
+    const oldPath = editingPlayer.deckPhotoPath;
+
+    try {
+      await setPlayerDeckPhoto(draft.id, editingPlayer.id, null);
+      deleteDeckPhoto(oldPath).catch(err => console.error('Failed to delete removed deck photo:', err));
+    } catch (err) {
+      console.error('Failed to remove deck photo:', err);
+      setPhotoError('Failed to remove deck photo. Please try again.');
+    } finally {
+      setPhotoSaving(false);
+    }
+  };
+
   const previewArch = editingPlayer
     ? formatArchetype(
         ALL_COLORS.filter(c => pips[c] === 'primary'),
@@ -127,12 +185,9 @@ function PlayersWithArchetype({ draft, currentUserId, isAdmin, setPlayerArchetyp
           const editable = canEdit(player.id);
           const isEditing = editingPlayerId === player.id;
           return (
-            <button
+            <div
               key={player.id}
-              onClick={() => handleChipClick(player)}
-              disabled={!editable}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-sm border transition-colors
-                ${editable ? 'cursor-pointer' : 'cursor-default'}
+              className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-sm transition-colors
                 ${isEditing
                   ? 'bg-gray-800 border-blue-700 text-gray-200'
                   : editable
@@ -140,6 +195,12 @@ function PlayersWithArchetype({ draft, currentUserId, isAdmin, setPlayerArchetyp
                     : 'bg-gray-800 border-gray-700 text-gray-300'
                 }`}
             >
+              <button
+                type="button"
+                onClick={() => handleChipClick(player)}
+                disabled={!editable}
+                className={`${editable ? 'cursor-pointer' : 'cursor-default'} flex items-center gap-1.5`}
+              >
               <span>{player.name}</span>
               {arch && (
                 <>
@@ -147,7 +208,19 @@ function PlayersWithArchetype({ draft, currentUserId, isAdmin, setPlayerArchetyp
                   <span className="text-gray-400 text-xs">{arch}</span>
                 </>
               )}
-            </button>
+              </button>
+              {player.deckPhotoUrl && (
+                <button
+                  type="button"
+                  title="View deck photo"
+                  aria-label={`View ${player.name}'s deck photo`}
+                  onClick={() => setPhotoViewerPlayer(player)}
+                  className="h-5 w-5 overflow-hidden rounded-full border border-gray-600 bg-gray-900 hover:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <img src={player.deckPhotoUrl} alt="" className="h-full w-full object-cover" />
+                </button>
+              )}
+            </div>
           );
         })}
       </div>
@@ -193,6 +266,95 @@ function PlayersWithArchetype({ draft, currentUserId, isAdmin, setPlayerArchetyp
             >
               Cancel
             </button>
+          </div>
+          <div className="mt-3 border-t border-gray-800 pt-3">
+            <div className="flex items-center gap-3">
+              {editingPlayer.deckPhotoUrl && (
+                <button
+                  type="button"
+                  onClick={() => setPhotoViewerPlayer(editingPlayer)}
+                  className="h-12 w-12 overflow-hidden rounded-md border border-gray-700 bg-gray-800"
+                  title="View deck photo"
+                >
+                  <img src={editingPlayer.deckPhotoUrl} alt="" className="h-full w-full object-cover" />
+                </button>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={event => handlePhotoSelected(event.target.files?.[0])}
+                />
+                <button
+                  type="button"
+                  disabled={photoSaving}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-xs font-semibold rounded-lg border border-gray-700"
+                >
+                  {editingPlayer.deckPhotoUrl ? 'Replace photo' : 'Upload photo'}
+                </button>
+                {editingPlayer.deckPhotoUrl && (
+                  <button
+                    type="button"
+                    disabled={photoSaving}
+                    onClick={handleRemovePhoto}
+                    className="px-3 py-1.5 text-red-300 hover:text-red-200 disabled:opacity-50 text-xs rounded-lg"
+                  >
+                    Remove
+                  </button>
+                )}
+                {photoSaving && <span className="text-xs text-gray-500">Saving photo...</span>}
+              </div>
+            </div>
+            {photoError && <p className="mt-2 text-xs text-red-400">{photoError}</p>}
+          </div>
+        </div>
+      )}
+      {photoViewerPlayer?.deckPhotoUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setPhotoViewerPlayer(null)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-lg border border-gray-700 bg-gray-950 shadow-2xl"
+            onClick={event => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-gray-800 px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-white">{photoViewerPlayer.name}</p>
+                <p className="text-xs text-gray-500">
+                  {formatArchetype(photoViewerPlayer.primaryColors ?? [], photoViewerPlayer.splashColors ?? []) || draftTitle(draft)}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={photoViewerPlayer.deckPhotoUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 text-xs font-semibold text-gray-300 hover:text-white rounded-md border border-gray-700 hover:border-gray-500"
+                >
+                  Open full size
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPhotoViewerPlayer(null)}
+                  className="px-3 py-1.5 text-xs font-semibold text-gray-300 hover:text-white rounded-md border border-gray-700 hover:border-gray-500"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="flex max-h-[78vh] items-center justify-center bg-black">
+              <img
+                src={photoViewerPlayer.deckPhotoUrl}
+                alt={`${photoViewerPlayer.name}'s deck photo`}
+                className="max-h-[78vh] w-auto max-w-full object-contain"
+              />
+            </div>
           </div>
         </div>
       )}
@@ -453,7 +615,7 @@ function TournamentWidget({ draft }: { draft: Draft }) {
 }
 
 export default function DraftHistory() {
-  const { drafts, loading, error, deleteDraft, markRestockComplete, loadDrafts, linkDraftPlayers, setPlayerArchetype } =
+  const { drafts, loading, error, deleteDraft, markRestockComplete, loadDrafts, linkDraftPlayers, setPlayerArchetype, setPlayerDeckPhoto } =
     useDraftHistoryStore();
 
   const { packs: inventoryPacks, loading: inventoryLoading } =
@@ -623,6 +785,7 @@ export default function DraftHistory() {
                       currentUserId={profile?.uid}
                       isAdmin={profile?.role === 'admin'}
                       setPlayerArchetype={setPlayerArchetype}
+                      setPlayerDeckPhoto={setPlayerDeckPhoto}
                     />
 
                     {draft.tournament && (
