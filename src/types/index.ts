@@ -41,6 +41,9 @@ export interface DraftPlayer {
   userId: string | null;
   primaryColors?: MtgColor[];
   splashColors?: MtgColor[];
+  deckPhotoUrl?: string;
+  deckPhotoPath?: string;
+  deckPhotoUploadedAt?: Timestamp;
 }
 
 export interface DraftPackRef {

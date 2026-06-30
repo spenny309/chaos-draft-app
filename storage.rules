@@ -1,0 +1,25 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isApproved() {
+      return isAuthed() && userDoc().status == 'approved';
+    }
+
+    function isAdmin() {
+      return isApproved() && userDoc().role == 'admin';
+    }
+
+    match /deckPhotos/{draftId}/{playerId}/{ownerUid}/{fileName} {
+      allow read: if isApproved();
+      allow create, update, delete: if isApproved() && (isAdmin() || request.auth.uid == ownerUid);
+    }
+  }
+}
