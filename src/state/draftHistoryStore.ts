@@ -135,34 +135,45 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
   },
 
   submitResult: async (draftId, roundNumber, pairingId, result) => {
-    const draft = get().drafts.find(d => d.id === draftId);
-    if (!draft?.tournament) return;
+    const draftRef = doc(db, 'drafts', draftId);
+    let updatedTournament: Draft['tournament'];
 
-    const targetRound = draft.tournament.rounds.find(r => r.roundNumber === roundNumber);
-    if (!targetRound) return;
-    const targetPairing = targetRound.pairings.find(p => p.id === pairingId);
-    if (!targetPairing || targetPairing.result) return;
+    await runTransaction(db, async (transaction) => {
+      const draftSnap = await transaction.get(draftRef);
+      if (!draftSnap.exists()) return;
 
-    const fullResult: PairingResult = {
-      ...result,
-      submittedBy: auth.currentUser?.uid ?? '',
-      submittedAt: Timestamp.now(),
-    };
+      const latestDraft = draftSnap.data() as Draft;
+      if (!latestDraft.tournament) return;
 
-    const updatedTournament = {
-      ...draft.tournament,
-      rounds: draft.tournament.rounds.map(round => {
-        if (round.roundNumber !== roundNumber) return round;
-        const updatedPairings = round.pairings.map(p =>
-          p.id !== pairingId ? p : { ...p, result: fullResult, status: 'complete' as const }
-        );
-        const nonByePairings = updatedPairings.filter(p => p.player2Id !== null);
-        const allComplete = nonByePairings.length > 0 && nonByePairings.every(p => p.status === 'complete');
-        return { ...round, pairings: updatedPairings, status: allComplete ? 'complete' as const : 'active' as const };
-      }),
-    };
+      const targetRound = latestDraft.tournament.rounds.find(r => r.roundNumber === roundNumber);
+      if (!targetRound) return;
+      const targetPairing = targetRound.pairings.find(p => p.id === pairingId);
+      if (!targetPairing || targetPairing.result) return;
 
-    await updateDoc(doc(db, 'drafts', draftId), { tournament: updatedTournament });
+      const fullResult: PairingResult = {
+        ...result,
+        submittedBy: auth.currentUser?.uid ?? '',
+        submittedAt: Timestamp.now(),
+      };
+
+      updatedTournament = {
+        ...latestDraft.tournament,
+        rounds: latestDraft.tournament.rounds.map(round => {
+          if (round.roundNumber !== roundNumber) return round;
+          const updatedPairings = round.pairings.map(p =>
+            p.id !== pairingId ? p : { ...p, result: fullResult, status: 'complete' as const }
+          );
+          const nonByePairings = updatedPairings.filter(p => p.player2Id !== null);
+          const allComplete = nonByePairings.length > 0 && nonByePairings.every(p => p.status === 'complete');
+          return { ...round, pairings: updatedPairings, status: allComplete ? 'complete' as const : 'active' as const };
+        }),
+      };
+
+      transaction.update(draftRef, { tournament: updatedTournament });
+    });
+
+    if (!updatedTournament) return;
+
     set(state => ({
       drafts: state.drafts.map(d => d.id === draftId ? { ...d, tournament: updatedTournament } : d),
     }));
