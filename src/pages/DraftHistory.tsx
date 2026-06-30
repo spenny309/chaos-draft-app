@@ -92,13 +92,19 @@ function PlayersWithArchetype({
 
   const openEditor = (player: DraftPlayer) => {
     setPips(initPipState(player));
+    setPhotoError(null);
     setEditingPlayerId(player.id);
+  };
+
+  const closeEditor = () => {
+    setPhotoError(null);
+    setEditingPlayerId(null);
   };
 
   const handleChipClick = (player: DraftPlayer) => {
     if (!canEdit(player.id)) return;
     if (editingPlayerId === player.id) {
-      setEditingPlayerId(null);
+      closeEditor();
     } else {
       openEditor(player);
     }
@@ -118,7 +124,7 @@ function PlayersWithArchetype({
     const splash = ALL_COLORS.filter(c => pips[c] === 'splash');
     await setPlayerArchetype(draft.id, playerId, primary, splash);
     setSaving(false);
-    setEditingPlayerId(null);
+    closeEditor();
   };
 
   const editingPlayer = editingPlayerId
@@ -261,7 +267,7 @@ function PlayersWithArchetype({
               {saving ? 'Saving…' : 'Save'}
             </button>
             <button
-              onClick={() => setEditingPlayerId(null)}
+              onClick={closeEditor}
               className="px-3 py-1.5 text-gray-500 hover:text-gray-300 text-xs rounded-lg"
             >
               Cancel
