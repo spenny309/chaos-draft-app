@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Timestamp } from 'firebase/firestore';
 import type { Draft, DraftPlayer, PairingResult } from '../../types';
 
 const {
@@ -48,7 +49,7 @@ const existingResult: PairingResult = {
   matchWinner: 'player1',
   isPartial: false,
   submittedBy: 'submitter-2',
-  submittedAt: 'EARLIER' as any,
+  submittedAt: 'EARLIER' as unknown as Timestamp,
 };
 
 function makeDraft(pairingAResult?: PairingResult): Draft {
@@ -56,7 +57,7 @@ function makeDraft(pairingAResult?: PairingResult): Draft {
     id: 'draft-1',
     type: 'regular',
     createdBy: 'creator',
-    createdAt: 'CREATED' as any,
+    createdAt: 'CREATED' as unknown as Timestamp,
     status: 'preview',
     players: [
       { id: 'p1', name: 'One', userId: null },
@@ -100,7 +101,7 @@ function makePlayerDraft(players: DraftPlayer[] = [
     id: 'draft-1',
     type: 'regular',
     createdBy: 'creator',
-    createdAt: 'CREATED' as any,
+    createdAt: 'CREATED' as unknown as Timestamp,
     status: 'preview',
     players,
   };
@@ -153,6 +154,33 @@ describe('useDraftHistoryStore tournament result writes', () => {
       },
     });
   });
+
+  it('clears a submitted result from the latest transaction snapshot', async () => {
+    const transactionUpdate = vi.fn();
+    mockRunTransaction.mockImplementation(async (_db, callback) => {
+      await callback({
+        get: vi.fn(async () => ({
+          exists: () => true,
+          data: () => makeDraft(existingResult),
+        })),
+        update: transactionUpdate,
+      });
+    });
+
+    await useDraftHistoryStore.getState().clearResult('draft-1', 1, 'match-a');
+
+    expect(mockRunTransaction).toHaveBeenCalledTimes(1);
+    expect(mockUpdateDoc).not.toHaveBeenCalled();
+
+    const updatedTournament = transactionUpdate.mock.calls[0][1].tournament;
+    const updatedRound = updatedTournament.rounds[0];
+    expect(updatedRound.status).toBe('active');
+    expect(updatedRound.pairings[0]).toMatchObject({
+      id: 'match-a',
+      status: 'pending',
+    });
+    expect(updatedRound.pairings[0]).not.toHaveProperty('result');
+  });
 });
 
 describe('useDraftHistoryStore player metadata writes', () => {
@@ -179,7 +207,7 @@ describe('useDraftHistoryStore player metadata writes', () => {
               userId: 'user-2',
               deckPhotoUrl: 'https://old.test/photo.jpg',
               deckPhotoPath: 'deckPhotos/draft-1/p2/old.jpg',
-              deckPhotoUploadedAt: 'EARLIER' as any,
+              deckPhotoUploadedAt: 'EARLIER' as unknown as Timestamp,
             },
           ]),
         })),
@@ -248,7 +276,7 @@ describe('useDraftHistoryStore player metadata writes', () => {
               userId: 'user-1',
               deckPhotoUrl: 'https://latest.test/photo.jpg',
               deckPhotoPath: 'deckPhotos/draft-1/p1/latest.jpg',
-              deckPhotoUploadedAt: 'EARLIER' as any,
+              deckPhotoUploadedAt: 'EARLIER' as unknown as Timestamp,
             },
           ]),
         })),
@@ -292,7 +320,7 @@ describe('useDraftHistoryStore player metadata writes', () => {
               primaryColors: ['R', 'G'],
               deckPhotoUrl: 'https://old.test/photo.jpg',
               deckPhotoPath: 'deckPhotos/draft-1/p1/old.jpg',
-              deckPhotoUploadedAt: 'EARLIER' as any,
+              deckPhotoUploadedAt: 'EARLIER' as unknown as Timestamp,
             },
           ]),
         })),

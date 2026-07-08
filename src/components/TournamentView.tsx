@@ -24,7 +24,7 @@ function playerArchetype(id: string, players: DraftPlayer[]): string {
 
 export default function TournamentView({ draft, isAdmin, currentUserId }: TournamentViewProps) {
   const navigate = useNavigate();
-  const { submitResult, addRound, finalizeTournament } = useDraftHistoryStore();
+  const { submitResult, clearResult, addRound, finalizeTournament } = useDraftHistoryStore();
   const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
   const [droppedIds, setDroppedIds] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState<string | null>(null);
@@ -204,8 +204,12 @@ export default function TournamentView({ draft, isAdmin, currentUserId }: Tourna
                 <ScoreEntry
                   pairing={pairing}
                   players={players}
+                  canClearResult={isAdmin}
                   onSubmit={async result => {
                     await submitResult(draft.id, currentRound.roundNumber, pairing.id, result);
+                  }}
+                  onClearResult={async () => {
+                    await clearResult(draft.id, currentRound.roundNumber, pairing.id);
                   }}
                 />
               )}

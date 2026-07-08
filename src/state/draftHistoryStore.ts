@@ -29,6 +29,7 @@ interface DraftHistoryState {
   linkDraftPlayers: (draftId: string, players: Draft['players']) => Promise<void>;
   updateTournament: (draftId: string, tournament: Draft['tournament']) => Promise<void>;
   submitResult: (draftId: string, roundNumber: number, pairingId: string, result: Omit<PairingResult, 'submittedBy' | 'submittedAt'>) => Promise<void>;
+  clearResult: (draftId: string, roundNumber: number, pairingId: string) => Promise<void>;
   addRound: (draftId: string, pairings: TournamentPairing[]) => Promise<void>;
   finalizeTournament: (draftId: string, userId: string) => Promise<void>;
   setPlayerArchetype: (draftId: string, playerId: string, primary: MtgColor[], splash: MtgColor[]) => Promise<void>;
@@ -226,6 +227,48 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
     }));
   },
 
+  clearResult: async (draftId, roundNumber, pairingId) => {
+    const draftRef = doc(db, 'drafts', draftId);
+    let updatedTournament: Draft['tournament'];
+
+    await runTransaction(db, async (transaction) => {
+      const draftSnap = await transaction.get(draftRef);
+      if (!draftSnap.exists()) return;
+
+      const latestDraft = draftSnap.data() as Draft;
+      if (!latestDraft.tournament) return;
+
+      const targetRound = latestDraft.tournament.rounds.find(r => r.roundNumber === roundNumber);
+      if (!targetRound) return;
+      const targetPairing = targetRound.pairings.find(p => p.id === pairingId);
+      if (!targetPairing?.result) return;
+
+      updatedTournament = {
+        ...latestDraft.tournament,
+        rounds: latestDraft.tournament.rounds.map(round => {
+          if (round.roundNumber !== roundNumber) return round;
+          const updatedPairings = round.pairings.map(p => {
+            if (p.id !== pairingId) return p;
+            const updatedPairing = { ...p, status: 'pending' as const };
+            delete updatedPairing.result;
+            return updatedPairing;
+          });
+          const nonByePairings = updatedPairings.filter(p => p.player2Id !== null);
+          const allComplete = nonByePairings.length > 0 && nonByePairings.every(p => p.status === 'complete');
+          return { ...round, pairings: updatedPairings, status: allComplete ? 'complete' as const : 'active' as const };
+        }),
+      };
+
+      transaction.update(draftRef, { tournament: updatedTournament });
+    });
+
+    if (!updatedTournament) return;
+
+    set(state => ({
+      drafts: state.drafts.map(d => d.id === draftId ? { ...d, tournament: updatedTournament } : d),
+    }));
+  },
+
   addRound: async (draftId, pairings) => {
     const draft = get().drafts.find(d => d.id === draftId);
     if (!draft?.tournament) return;
@@ -271,15 +314,18 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
 
     const result = await updateDraftPlayerInTransaction(draftId, playerId, player => {
       if (sortedPrimary.length === 0) {
-        const { primaryColors: _primary, splashColors: _splash, ...rest } = player;
-        return rest;
+        const updatedPlayer = { ...player };
+        delete updatedPlayer.primaryColors;
+        delete updatedPlayer.splashColors;
+        return updatedPlayer;
       }
-      const { splashColors: _oldSplash, ...rest } = player;
-      return {
-        ...rest,
-        primaryColors: sortedPrimary,
-        ...(sortedSplash.length > 0 ? { splashColors: sortedSplash } : {}),
-      };
+      const updatedPlayer = { ...player, primaryColors: sortedPrimary };
+      if (sortedSplash.length > 0) {
+        updatedPlayer.splashColors = sortedSplash;
+      } else {
+        delete updatedPlayer.splashColors;
+      }
+      return updatedPlayer;
     });
 
     if (!result) return;
@@ -295,17 +341,15 @@ export const useDraftHistoryStore = create<DraftHistoryState>((set, get) => ({
     const uploadedAt = photo ? Timestamp.now() : null;
 
     const result = await updateDraftPlayerInTransaction(draftId, playerId, player => {
-      const {
-        deckPhotoUrl: _oldUrl,
-        deckPhotoPath: _oldPath,
-        deckPhotoUploadedAt: _oldUploadedAt,
-        ...rest
-      } = player;
+      const updatedPlayer = { ...player };
+      delete updatedPlayer.deckPhotoUrl;
+      delete updatedPlayer.deckPhotoPath;
+      delete updatedPlayer.deckPhotoUploadedAt;
 
-      if (!photo) return rest;
+      if (!photo) return updatedPlayer;
 
       return {
-        ...rest,
+        ...updatedPlayer,
         deckPhotoUrl: photo.url,
         deckPhotoPath: photo.path,
         deckPhotoUploadedAt: uploadedAt!,
