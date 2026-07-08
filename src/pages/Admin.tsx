@@ -3,6 +3,7 @@ import { useUserStore } from '../state/userStore';
 import { usePackCatalogStore } from '../state/packCatalogStore';
 import { useCubeStore } from '../state/cubeStore';
 import type { UserProfile } from '../types';
+import { isCubeCobraUrl } from '../utils/cubecobraMetadata';
 
 type AdminSection = 'users' | 'catalog' | 'cubes';
 
@@ -146,9 +147,8 @@ function UserManagement() {
 function CubeManagement() {
   const { cubes, loading, addCube, updateCube, deleteCube } = useCubeStore();
 
-  const [newName, setNewName] = useState('');
-  const [newImageUrl, setNewImageUrl] = useState('');
-  const [newExternalUrl, setNewExternalUrl] = useState('');
+  const [newCubeUrl, setNewCubeUrl] = useState('');
+  const [addError, setAddError] = useState('');
   const [saving, setSaving] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -179,18 +179,35 @@ function CubeManagement() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim()) return;
+    const cubeUrl = newCubeUrl.trim();
+    if (!cubeUrl) return;
+    if (!isCubeCobraUrl(cubeUrl)) {
+      setAddError('Enter a valid Cube Cobra cube URL.');
+      return;
+    }
+
     setSaving(true);
-    await addCube({
-      name: newName.trim(),
-      ...(newImageUrl.trim() ? { imageUrl: newImageUrl.trim() } : {}),
-      ...(newExternalUrl.trim() ? { externalUrl: newExternalUrl.trim() } : {}),
-      createdBy: 'admin',
-    });
-    setNewName('');
-    setNewImageUrl('');
-    setNewExternalUrl('');
-    setSaving(false);
+    setAddError('');
+    try {
+      const response = await fetch(`/api/cubecobra-metadata?url=${encodeURIComponent(cubeUrl)}`);
+      const metadata = await response.json() as { name?: string; imageUrl?: string; error?: string };
+      if (!response.ok || !metadata.name || !metadata.imageUrl) {
+        throw new Error(metadata.error ?? 'Failed to load Cube Cobra metadata.');
+      }
+
+      await addCube({
+        name: metadata.name,
+        imageUrl: metadata.imageUrl,
+        externalUrl: cubeUrl,
+        createdBy: 'admin',
+      });
+      setNewCubeUrl('');
+    } catch (err) {
+      console.error('Failed to import Cube Cobra metadata:', err);
+      setAddError('Could not read that Cube Cobra page. Check the URL and try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (id: string, name: string) => {
@@ -210,19 +227,42 @@ function CubeManagement() {
         {cubes.map(cube => (
           <div key={cube.id} className="bg-gray-800 rounded-xl border border-gray-700">
             <div className="p-4 flex items-center gap-4">
-              {cube.imageUrl ? (
-                <img
-                  src={cube.imageUrl}
-                  alt={cube.name}
-                  className="w-8 h-8 object-cover rounded flex-shrink-0"
-                  onError={e => { (e.target as HTMLImageElement).src = 'https://placehold.co/32x32/1F2937/FFF?text=?'; }}
-                />
+              {cube.externalUrl ? (
+                <a
+                  href={cube.externalUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex flex-1 min-w-0 items-center gap-4 rounded hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {cube.imageUrl ? (
+                    <img
+                      src={cube.imageUrl}
+                      alt={cube.name}
+                      className="w-8 h-8 object-cover rounded flex-shrink-0"
+                      onError={e => { (e.target as HTMLImageElement).src = 'https://placehold.co/32x32/1F2937/FFF?text=?'; }}
+                    />
+                  ) : (
+                    <div className="w-8 h-8 bg-gray-600 rounded flex-shrink-0" aria-hidden="true" />
+                  )}
+                  <span className="text-white font-medium truncate hover:text-blue-300">{cube.name}</span>
+                </a>
               ) : (
-                <div className="w-8 h-8 bg-gray-600 rounded flex-shrink-0" aria-hidden="true" />
+                <>
+                  {cube.imageUrl ? (
+                    <img
+                      src={cube.imageUrl}
+                      alt={cube.name}
+                      className="w-8 h-8 object-cover rounded flex-shrink-0"
+                      onError={e => { (e.target as HTMLImageElement).src = 'https://placehold.co/32x32/1F2937/FFF?text=?'; }}
+                    />
+                  ) : (
+                    <div className="w-8 h-8 bg-gray-600 rounded flex-shrink-0" aria-hidden="true" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-medium truncate">{cube.name}</p>
+                  </div>
+                </>
               )}
-              <div className="flex-1 min-w-0">
-                <p className="text-white font-medium">{cube.name}</p>
-              </div>
               {cube.externalUrl && (
                 <a
                   href={cube.externalUrl}
@@ -272,11 +312,17 @@ function CubeManagement() {
       <div className="bg-gray-800 rounded-xl p-5 border border-gray-700 space-y-4">
         <h2 className="text-lg font-semibold text-gray-200">Add Cube</h2>
         <form onSubmit={handleAdd} className="flex flex-col gap-3">
-          <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Cube name" required className={inputCls} />
-          <input type="url" value={newImageUrl} onChange={e => setNewImageUrl(e.target.value)} placeholder="Image URL (optional)" className={inputCls} />
-          <input type="url" value={newExternalUrl} onChange={e => setNewExternalUrl(e.target.value)} placeholder="Cubecobra / Moxfield URL (optional)" className={inputCls} />
-          <button type="submit" disabled={saving || !newName.trim()} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-bold rounded-lg self-start">
-            Add Cube
+          <input
+            type="url"
+            value={newCubeUrl}
+            onChange={e => { setNewCubeUrl(e.target.value); setAddError(''); }}
+            placeholder="https://cubecobra.com/cube/about/..."
+            required
+            className={inputCls}
+          />
+          {addError && <p className="text-sm text-red-400">{addError}</p>}
+          <button type="submit" disabled={saving || !newCubeUrl.trim()} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-bold rounded-lg self-start">
+            {saving ? 'Importing...' : 'Add Cube'}
           </button>
         </form>
       </div>
