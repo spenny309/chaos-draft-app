@@ -151,10 +151,5 @@ service cloud.firestore {
       );
       allow delete: if isAdmin();
     }
-
-    // Mail — write-only for Firebase Trigger Email extension
-    match /mail/{mailId} {
-      allow create: if isAuthed();
-    }
   }
 }

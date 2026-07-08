@@ -124,20 +124,14 @@ After migration, new packs may only be added by searching the `packCatalog`. Fre
 2. Firebase Auth creates the account
 3. A `users` document is written with `status: "pending"`, `role: "user"`
 4. App shows a "Your account is pending approval" screen — no app access until approved
-5. Firebase Trigger Email extension writes to `mail` collection, sending admin a notification email with the new user's name and email
-6. Admin opens the Admin panel, sees pending user, clicks Approve or Deny
-7. **Approve** → `status: "approved"`, user gains access (Firestore listener updates the pending screen in real time)
-8. **Deny** → `status: "denied"`, user sees a "your request was denied" message
+5. Admin opens the Admin panel, sees pending user, clicks Approve or Deny
+6. **Approve** → `status: "approved"`, user gains access (Firestore listener updates the pending screen in real time)
+7. **Deny** → `status: "denied"`, user sees a "your request was denied" message
 
 ### Admin Role
 - Identified by `role: "admin"` in `users` collection
 - Seeded during migration for the existing admin account
 - Admin-only capabilities: manage Chaos Inventory, finalize Regular Drafts, approve/deny users, manage Pack Catalog
-
-### Email Notification
-- Firebase Trigger Email extension (no Cloud Functions required)
-- Configured once with SMTP credentials (e.g. Gmail app password)
-- Sends notification email to admin on new user registration
 
 ### Firestore Security Rules Summary
 - `users`: users read/write own doc; admin reads all, updates `status`/`role`
@@ -145,7 +139,6 @@ After migration, new packs may only be added by searching the `packCatalog`. Fre
 - `packCatalog`: admin write; all approved users read
 - `privateInventory`: owner read/write own entries; admin reads all; approved users read all (for Draft Inventory view)
 - `drafts`: approved users read all; approved users create; only admin can update `status` to `"finalized"`
-- `mail`: app write-only (for trigger email); no client reads
 
 ---
 
@@ -270,8 +263,7 @@ Updated tab structure (all approved users):
 2. Add `catalogId` field to each `packs` document (matched by name to catalog entry)
 3. Create `users` document for existing admin account with `role: "admin"`, `status: "approved"`
 4. Existing `drafts` documents: add `type: "chaos"`, `status: "finalized"` fields; add `userId: null` to any player entries missing it
-5. Configure Firebase Trigger Email extension with admin SMTP credentials
-6. Deploy updated Firestore security rules
+5. Deploy updated Firestore security rules
 
 ---
 

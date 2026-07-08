@@ -7,7 +7,6 @@ import {
   collection,
   getDocs,
   updateDoc,
-  addDoc,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -83,15 +82,6 @@ export const useUserStore = create<UserStore>((set, get) => ({
     });
     if (isAdmin) {
       await setDoc(doc(db, 'publicProfiles', uid), { name });
-    }
-    if (!isAdmin) {
-      await addDoc(collection(db, 'mail'), {
-        to: adminEmail,
-        message: {
-          subject: `New registration: ${name}`,
-          html: `<p><strong>${name}</strong> (${email}) has registered and is awaiting your approval in the Admin panel.</p>`,
-        },
-      });
     }
   },
 
