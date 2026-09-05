@@ -151,3 +151,27 @@ export const DEFAULT_PACKS_PER_PERSON: Record<DraftFormat, number> = {
   'Sealed': 6,
   'Team Sealed': 4,
 };
+
+export interface ActiveChaosDraft {
+  ownerId: string;
+  sessionId: string;
+  finalDraftId: string;
+  revision: number;
+  players: DraftPlayer[];
+  numPacks: number;
+  packsSelectedOrder: DraftPackRef[];
+  pendingTournament?: DraftTournament;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface CheckpointMutationResult {
+  revision: number;
+  packsSelectedOrder: DraftPackRef[];
+  pendingTournament?: DraftTournament;
+}
+
+export type FinalizationReconciliation =
+  | { status: 'committed'; draftId: string }
+  | { status: 'not-committed'; checkpoint: ActiveChaosDraft }
+  | { status: 'integrity-error' };
