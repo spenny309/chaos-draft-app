@@ -13,8 +13,9 @@ import type {
   DraftPackRef,
   DraftPlayer,
   DraftTournament,
+  FinalizationReconciliation,
 } from '../types';
-import { validateCheckpointShape } from '../utils/chaosDraftCheckpoint';
+import { countSelectedPacks, validateCheckpointShape } from '../utils/chaosDraftCheckpoint';
 
 export class ChaosDraftConflictError extends Error {
   constructor(message: string) {
@@ -56,6 +57,8 @@ export interface ActiveChaosDraftRepository {
     tournament: DraftTournament,
   ): Promise<CheckpointMutationResult>;
   discard(command: CheckpointCommand): Promise<void>;
+  finalize(command: CheckpointCommand): Promise<{ draftId: string }>;
+  reconcile(ownerId: string, finalDraftId: string): Promise<FinalizationReconciliation>;
 }
 
 export interface FirestoreTransactionAdapter {
@@ -278,6 +281,9 @@ export function createFirestoreAdapter(firestore: Firestore): FirestoreAdapter {
         operation({
           async get(path) {
             const snapshot = await firestoreTransaction.get(doc(firestore, path));
+            if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) {
+              throw new Error('An authoritative server transaction snapshot is required.');
+            }
             return snapshot.exists() ? snapshot.data() : null;
           },
           create(path, value) {
@@ -452,6 +458,83 @@ export function createActiveChaosDraftRepository(
         const path = checkpointPath(command.ownerId);
         requireCurrentCheckpoint(await transaction.get(path), command);
         transaction.delete(path);
+      });
+    },
+
+    async finalize(command) {
+      requireOwner(command.ownerId);
+      validateCommand(command);
+      return adapter.runTransaction(async (transaction) => {
+        const path = checkpointPath(command.ownerId);
+        const checkpoint = requireCurrentCheckpoint(await transaction.get(path), command);
+        if (!checkpoint.pendingTournament) {
+          throw new ChaosDraftValidationError('Persisted tournament Round 1 is required.');
+        }
+        validateTournament(checkpoint, checkpoint.pendingTournament);
+
+        const draftPath = `drafts/${checkpoint.finalDraftId}`;
+        if (await transaction.get(draftPath) !== null) {
+          throw new ChaosDraftConflictError('The final draft already exists.');
+        }
+
+        const inventoryUpdates: { path: string; inPerson: number }[] = [];
+        for (const [packId, selectedCount] of countSelectedPacks(checkpoint.packsSelectedOrder)) {
+          const packPath = `packs/${packId}`;
+          const livePack = readInventoryPack(await transaction.get(packPath), packId, checkpoint.ownerId);
+          if (livePack.inPerson < selectedCount) {
+            throw new ChaosDraftValidationError(`Selected pack ${packId} has insufficient quantity.`);
+          }
+          inventoryUpdates.push({ path: packPath, inPerson: livePack.inPerson - selectedCount });
+        }
+
+        transaction.create(draftPath, {
+          type: 'chaos',
+          createdBy: checkpoint.ownerId,
+          createdAt: adapter.serverTimestamp(),
+          status: 'finalized',
+          finalizedAt: adapter.serverTimestamp(),
+          finalizedBy: checkpoint.ownerId,
+          sessionId: checkpoint.sessionId,
+          players: checkpoint.players,
+          packsSelectedOrder: checkpoint.packsSelectedOrder,
+          restockComplete: false,
+          tournament: checkpoint.pendingTournament,
+        });
+        for (const item of inventoryUpdates) {
+          transaction.update(item.path, { inPerson: item.inPerson });
+        }
+        transaction.delete(path);
+        return { draftId: checkpoint.finalDraftId };
+      });
+    },
+
+    async reconcile(ownerId, finalDraftId) {
+      requireOwner(ownerId);
+      if (!isNonEmptyString(finalDraftId)) {
+        throw new ChaosDraftValidationError('The final draft ID is required.');
+      }
+      return adapter.runTransaction(async (transaction) => {
+        const draft = await transaction.get(`drafts/${finalDraftId}`);
+        const checkpointValue = await transaction.get(checkpointPath(ownerId));
+        if (draft !== null && checkpointValue === null) {
+          if (
+            !isRecord(draft) ||
+            draft.type !== 'chaos' ||
+            draft.status !== 'finalized' ||
+            draft.createdBy !== ownerId ||
+            draft.finalizedBy !== ownerId ||
+            !isNonEmptyString(draft.sessionId)
+          ) {
+            return { status: 'integrity-error' };
+          }
+          return { status: 'committed', draftId: finalDraftId };
+        }
+        if (draft === null && checkpointValue !== null) {
+          const checkpoint = readCheckpoint(checkpointValue, ownerId);
+          if (checkpoint.finalDraftId !== finalDraftId) return { status: 'integrity-error' };
+          return { status: 'not-committed', checkpoint };
+        }
+        return { status: 'integrity-error' };
       });
     },
   };
