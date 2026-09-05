@@ -55,12 +55,10 @@ export default function DraftHub() {
     setStep('seating');
   };
 
-  const handleSeatingConfirmed = (ordered: DraftPlayer[]) => {
+  const handleSeatingConfirmed = async (ordered: DraftPlayer[]) => {
     setOrderedPlayers(ordered);
     if (chaosPlayers) {
-      const names = ordered.map((p, i) => p.name || `Player ${i + 1}`);
-      const userIds = ordered.map(p => p.userId);
-      initializeSession(ordered.length, names, userIds);
+      await initializeSession(ordered);
       navigate('/draft');
     } else {
       setRound1Pairings(generateRound1Pairings(ordered));

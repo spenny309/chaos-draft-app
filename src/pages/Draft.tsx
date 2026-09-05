@@ -144,8 +144,9 @@ export default function Draft() {
     players,
     packsSelectedOrder,
     tempInventory,
-    selectPackForNextPlayer,
-    resetSession,
+    checkpointSelectedPack,
+    applyCheckpointedPack,
+    discardSession,
     confirmSession,
     numPacks,
     confirmed,
@@ -377,10 +378,13 @@ export default function Draft() {
       setTimeout(() => {
         setJustFinished(false);
         if (selectedPackRef.current) {
-          setSelectedForDisplay(selectedPackRef.current);
-          setShowPopup(true);
-          selectPackForNextPlayer(selectedPackRef.current);
-          selectedPackRef.current = null;
+          const selectedPack = selectedPackRef.current;
+          void checkpointSelectedPack(selectedPack).then((committedRevision) => {
+            applyCheckpointedPack(selectedPack, committedRevision);
+            setSelectedForDisplay(selectedPack);
+            setShowPopup(true);
+            selectedPackRef.current = null;
+          });
         }
       }, 100);
     }
@@ -482,7 +486,7 @@ export default function Draft() {
       totalRounds: 3,
       status: 'active',
     };
-    setPendingTournament(tournament);
+    await setPendingTournament(tournament);
     await handleConfirm();
   };
 
@@ -825,7 +829,7 @@ export default function Draft() {
       {/* --- Session Management Buttons --- */}
       <div className="mt-8 flex justify-center gap-4 flex-wrap">
         <button
-          onClick={resetSession}
+          onClick={discardSession}
           disabled={isConfirming}
           className="bg-red-700 hover:bg-red-800 text-white px-5 py-3 rounded-lg font-semibold disabled:bg-gray-600"
         >

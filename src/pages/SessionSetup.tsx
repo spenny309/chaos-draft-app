@@ -38,18 +38,19 @@ export default function SessionSetup() {
     setPlayerUserIds(Array(newCount).fill(null));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // ✅ Determine the final number of players from the input string
-    const finalNumPlayers = Math.max(1, Number(numPlayersInput) || 4);
 
     // Use player names, defaulting to "Player X" if empty
     const finalPlayerNames = playerNames.map(
       (name, i) => name.trim() || `Player ${i + 1}`
     );
 
-    initializeSession(finalNumPlayers, finalPlayerNames, playerUserIds);
+    await initializeSession(finalPlayerNames.map((name, index) => ({
+      id: `player-${index + 1}`,
+      name,
+      userId: playerUserIds[index] ?? null,
+    })));
     navigate("/draft");
   };
 

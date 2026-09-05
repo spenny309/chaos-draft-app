@@ -1,185 +1,374 @@
-import { create } from "zustand";
-import { useInventoryStore } from "./inventoryStore";
-// ✅ CHANGED: Import the new Pack type from your Firebase inventoryStore
-import { type Pack } from "./inventoryStore";
+import { create } from 'zustand';
 import { auth } from '../firebase';
-import { useDraftHistoryStore } from './draftHistoryStore';
-import type { DraftTournament } from '../types';
+import { activeChaosDraftRepository } from '../repositories/activeChaosDraftRepository';
+import type {
+  ActiveChaosDraft,
+  CheckpointMutationResult,
+  DraftPlayer,
+  DraftTournament,
+  FinalizationReconciliation,
+} from '../types';
+import { reconstructChaosSession } from '../utils/chaosDraftCheckpoint';
+import { useInventoryStore, type Pack } from './inventoryStore';
 
 export interface Player {
   id: string;
   name: string;
-  userId: string | null;    // linked registered user, null for guests
-  selectedPacks: Pack[]; // This now correctly uses the Firebase Pack type
+  userId: string | null;
+  selectedPacks: Pack[];
 }
 
 export interface SessionState {
+  ownerId: string;
   sessionId: string;
+  finalDraftId: string;
+  revision: number;
   players: Player[];
-  numPacks: number; // total packs in this session
+  numPacks: number;
   packsSelectedOrder: Pack[];
   tempInventory: Pack[];
   confirmed: boolean;
   pendingTournament: DraftTournament | null;
-  setPendingTournament: (tournament: DraftTournament) => void;
+  mutationPending: boolean;
+  initializeSession(players: DraftPlayer[], numPacks?: number): Promise<void>;
+  hydrateSession(checkpoint: ActiveChaosDraft): void;
+  checkpointSelectedPack(pack: Pack): Promise<number>;
+  applyCheckpointedPack(pack: Pack, committedRevision: number): void;
+  undoLastPick(): Promise<void>;
+  setPendingTournament(tournament: DraftTournament): Promise<void>;
+  discardSession(): Promise<void>;
+  confirmSession(): Promise<{ draftId: string }>;
+  reconcileConfirmation(): Promise<FinalizationReconciliation>;
+  clearLocalSession(): void;
+}
 
-  initializeSession: (
-    numPlayers: number,
-    playerNames: string[],
-    playerUserIds?: (string | null)[],
-    numPacks?: number
-  ) => void;
-  selectPackForNextPlayer: (pack: Pack) => void;
-  resetSession: () => void;
-  confirmSession: () => Promise<void>;
-  undoLastPick: () => void;
+const emptySession = {
+  ownerId: '',
+  sessionId: '',
+  finalDraftId: '',
+  revision: 0,
+  players: [] as Player[],
+  numPacks: 0,
+  packsSelectedOrder: [] as Pack[],
+  tempInventory: [] as Pack[],
+  confirmed: false,
+  pendingTournament: null as DraftTournament | null,
+  mutationPending: false,
+};
+
+interface PendingAppend {
+  generation: number;
+  sessionId: string;
+  baseRevision: number;
+  packId: string;
+  result: CheckpointMutationResult;
+}
+
+let checkpointSnapshot: ActiveChaosDraft | null = null;
+let pendingAppend: PendingAppend | null = null;
+let mutationGeneration = 0;
+
+function requireActiveSession(state: SessionState): void {
+  if (!state.ownerId || !state.sessionId || !state.finalDraftId || !checkpointSnapshot) {
+    throw new Error('There is no active chaos draft session.');
+  }
+}
+
+function requireMutationAvailable(state: SessionState): void {
+  requireActiveSession(state);
+  if (state.mutationPending) throw new Error('A chaos draft mutation is already pending.');
+}
+
+function commandFor(state: SessionState) {
+  return {
+    ownerId: state.ownerId,
+    sessionId: state.sessionId,
+    expectedRevision: state.revision,
+  };
+}
+
+function checkpointFromMutation(
+  state: SessionState,
+  result: CheckpointMutationResult,
+): ActiveChaosDraft {
+  requireActiveSession(state);
+  if (result.revision !== state.revision + 1) {
+    throw new Error('The repository returned a stale checkpoint revision.');
+  }
+
+  return {
+    ...checkpointSnapshot!,
+    revision: result.revision,
+    packsSelectedOrder: result.packsSelectedOrder,
+    ...(result.pendingTournament
+      ? { pendingTournament: result.pendingTournament }
+      : { pendingTournament: undefined }),
+  };
+}
+
+function reconstruct(checkpoint: ActiveChaosDraft) {
+  return reconstructChaosSession(
+    checkpoint,
+    useInventoryStore.getState().packs,
+    checkpoint.ownerId,
+  );
+}
+
+function beginMutation(set: (state: Partial<SessionState>) => void): number {
+  const generation = ++mutationGeneration;
+  set({ mutationPending: true });
+  return generation;
+}
+
+function mutationIsCurrent(generation: number): boolean {
+  return mutationGeneration === generation;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
-  sessionId: "",
-  players: [],
-  numPacks: 0,
-  packsSelectedOrder: [],
-  tempInventory: [],
-  confirmed: false,
-  pendingTournament: null,
+  ...emptySession,
 
-  // This function works as-is because it fetches from the (now Firebase-backed) inventoryStore
-  initializeSession: (numPlayers, playerNames, playerUserIds = [], numPacks) => {
-    const { packs: inventory } = useInventoryStore.getState();
-    const players: Player[] = [];
+  initializeSession: async (players, numPacks = players.length * 3) => {
+    const ownerId = auth.currentUser?.uid;
+    if (!ownerId) throw new Error('You must be signed in to start a chaos draft.');
+    if (get().mutationPending) throw new Error('A chaos draft mutation is already pending.');
 
-    for (let i = 0; i < numPlayers; i++) {
-      players.push({
-        id: `player-${i + 1}`,
-        name: playerNames[i] || `Player ${i + 1}`,
-        userId: playerUserIds[i] ?? null,
-        selectedPacks: [],
+    const generation = beginMutation(set);
+    const sessionId = crypto.randomUUID();
+    try {
+      const checkpoint = await activeChaosDraftRepository.create({
+        ownerId,
+        sessionId,
+        players: players.map((player) => ({ ...player })),
+        numPacks,
       });
+      if (!mutationIsCurrent(generation)) {
+        throw new Error('The chaos draft session changed while it was being created.');
+      }
+      get().hydrateSession(checkpoint);
+    } catch (error) {
+      if (mutationIsCurrent(generation)) set({ mutationPending: false });
+      throw error;
+    }
+  },
+
+  hydrateSession: (checkpoint) => {
+    const view = reconstruct(checkpoint);
+    mutationGeneration += 1;
+    checkpointSnapshot = checkpoint;
+    pendingAppend = null;
+    set({
+      ownerId: checkpoint.ownerId,
+      sessionId: checkpoint.sessionId,
+      finalDraftId: checkpoint.finalDraftId,
+      revision: checkpoint.revision,
+      players: view.players,
+      numPacks: checkpoint.numPacks,
+      packsSelectedOrder: view.packsSelectedOrder,
+      tempInventory: view.tempInventory,
+      confirmed: false,
+      pendingTournament: checkpoint.pendingTournament ?? null,
+      mutationPending: false,
+    });
+  },
+
+  checkpointSelectedPack: async (pack) => {
+    const state = get();
+    requireMutationAvailable(state);
+    const generation = beginMutation(set);
+
+    try {
+      const result = await activeChaosDraftRepository.appendPack(commandFor(state), {
+        id: pack.id,
+        name: pack.name,
+        imageUrl: pack.imageUrl,
+      });
+      if (!mutationIsCurrent(generation)) {
+        throw new Error('The chaos draft session changed while the pack was being saved.');
+      }
+      const canonicalCheckpoint = checkpointFromMutation(state, result);
+      if (
+        result.packsSelectedOrder.length !== state.packsSelectedOrder.length + 1 ||
+        result.packsSelectedOrder.at(-1)?.id !== pack.id
+      ) {
+        throw new Error('The repository returned an unexpected selected pack.');
+      }
+      reconstruct(canonicalCheckpoint);
+      pendingAppend = {
+        generation,
+        sessionId: state.sessionId,
+        baseRevision: state.revision,
+        packId: pack.id,
+        result,
+      };
+      return result.revision;
+    } catch (error) {
+      if (mutationIsCurrent(generation)) {
+        pendingAppend = null;
+        set({ mutationPending: false });
+      }
+      throw error;
+    }
+  },
+
+  applyCheckpointedPack: (pack, committedRevision) => {
+    const state = get();
+    const pending = pendingAppend;
+    if (!pending || !state.mutationPending) {
+      throw new Error('There is no checkpointed pack pending apply.');
+    }
+    if (
+      pending.generation !== mutationGeneration ||
+      pending.sessionId !== state.sessionId ||
+      pending.baseRevision !== state.revision ||
+      pending.packId !== pack.id ||
+      committedRevision !== pending.result.revision ||
+      committedRevision !== state.revision + 1
+    ) {
+      throw new Error('The checkpointed pack apply is stale.');
     }
 
+    const checkpoint = checkpointFromMutation(state, pending.result);
+    const view = reconstruct(checkpoint);
+    checkpointSnapshot = checkpoint;
+    pendingAppend = null;
     set({
-      sessionId: crypto.randomUUID(),
-      players,
-      numPacks: numPacks || numPlayers * 3,
-      packsSelectedOrder: [],
-      tempInventory: inventory.map((p) => ({ ...p })), // copy of inventory
-      confirmed: false,
+      revision: checkpoint.revision,
+      players: view.players,
+      packsSelectedOrder: view.packsSelectedOrder,
+      tempInventory: view.tempInventory,
+      pendingTournament: checkpoint.pendingTournament ?? null,
+      mutationPending: false,
     });
   },
 
-  // This function works as-is. All IDs are now strings, so `p.id === pack.id` is correct.
-  selectPackForNextPlayer: (pack) => {
-    const { players, packsSelectedOrder } = get();
-    const nextIndex = packsSelectedOrder.length;
-    const playerIndex = nextIndex % players.length;
+  undoLastPick: async () => {
+    const state = get();
+    requireMutationAvailable(state);
+    if (state.packsSelectedOrder.length === 0) throw new Error('There is no selected pack to undo.');
+    const generation = beginMutation(set);
 
-    const updatedPlayers = [...players];
-    updatedPlayers[playerIndex].selectedPacks.push(pack);
-
-    // Decrement 'inPerson' quantity from tempInventory for the selected pack
-    const tempInventory = get()
-      .tempInventory.map((p) =>
-        p.id === pack.id ? { ...p, inPerson: p.inPerson - 1 } : p
-      )
-      .filter((p) => p.inPerson > 0 || p.inTransit > 0); // Keep packs if they have any quantity
-
-    set({
-      players: updatedPlayers,
-      packsSelectedOrder: [...packsSelectedOrder, pack],
-      tempInventory,
-    });
+    try {
+      const result = await activeChaosDraftRepository.undo(commandFor(state));
+      if (!mutationIsCurrent(generation)) {
+        throw new Error('The chaos draft session changed while undo was being saved.');
+      }
+      if (result.packsSelectedOrder.length !== state.packsSelectedOrder.length - 1) {
+        throw new Error('The repository returned an unexpected undo result.');
+      }
+      const checkpoint = checkpointFromMutation(state, result);
+      const view = reconstruct(checkpoint);
+      checkpointSnapshot = checkpoint;
+      set({
+        revision: checkpoint.revision,
+        players: view.players,
+        packsSelectedOrder: view.packsSelectedOrder,
+        tempInventory: view.tempInventory,
+        pendingTournament: checkpoint.pendingTournament ?? null,
+      });
+    } finally {
+      if (mutationIsCurrent(generation)) set({ mutationPending: false });
+    }
   },
 
-  setPendingTournament: (tournament) => {
-    set({ pendingTournament: tournament });
+  setPendingTournament: async (tournament) => {
+    const state = get();
+    requireMutationAvailable(state);
+    const generation = beginMutation(set);
+
+    try {
+      const result = await activeChaosDraftRepository.saveTournament(commandFor(state), tournament);
+      if (!mutationIsCurrent(generation)) {
+        throw new Error('The chaos draft session changed while Round 1 was being saved.');
+      }
+      if (!result.pendingTournament || result.packsSelectedOrder.length !== state.packsSelectedOrder.length) {
+        throw new Error('The repository returned an unexpected tournament result.');
+      }
+      const checkpoint = checkpointFromMutation(state, result);
+      const view = reconstruct(checkpoint);
+      checkpointSnapshot = checkpoint;
+      set({
+        revision: checkpoint.revision,
+        players: view.players,
+        packsSelectedOrder: view.packsSelectedOrder,
+        tempInventory: view.tempInventory,
+        pendingTournament: result.pendingTournament,
+      });
+    } finally {
+      if (mutationIsCurrent(generation)) set({ mutationPending: false });
+    }
   },
 
-  // This function works as-is, correctly pulling the fresh inventory from the store.
-  resetSession: () => {
-    const { players } = get();
-    const { packs: inventory } = useInventoryStore.getState();
-    const resetPlayers = players.map((p) => ({ ...p, selectedPacks: [] }));
+  discardSession: async () => {
+    const state = get();
+    requireMutationAvailable(state);
+    const generation = beginMutation(set);
 
-    set({
-      sessionId: crypto.randomUUID(),
-      players: resetPlayers,
-      packsSelectedOrder: [],
-      tempInventory: inventory.map((p) => ({ ...p })),
-      confirmed: false,
-      pendingTournament: null,
-    });
+    try {
+      await activeChaosDraftRepository.discard(commandFor(state));
+      if (!mutationIsCurrent(generation)) {
+        throw new Error('The chaos draft session changed while it was being discarded.');
+      }
+      get().clearLocalSession();
+    } finally {
+      if (mutationIsCurrent(generation)) set({ mutationPending: false });
+    }
   },
 
   confirmSession: async () => {
-    const { packsSelectedOrder, players, sessionId } = get();
-    const { confirmSessionPicks } = useInventoryStore.getState();
-    const { saveDraft } = useDraftHistoryStore.getState();
-    const uid = auth.currentUser?.uid;
-
-    if (packsSelectedOrder.length === 0 || !uid) return;
+    const state = get();
+    requireMutationAvailable(state);
+    if (state.packsSelectedOrder.length !== state.numPacks) {
+      throw new Error('The chaos draft must be complete before confirmation.');
+    }
+    if (!state.pendingTournament) {
+      throw new Error('Persisted tournament Round 1 is required before confirmation.');
+    }
+    const generation = beginMutation(set);
 
     try {
-      await confirmSessionPicks(packsSelectedOrder);
-
-      await saveDraft({
-        type: 'chaos',
-        createdBy: uid,
-        status: 'finalized',
-        sessionId,
-        players: players.map(p => ({
-          id: p.id,
-          name: p.name,
-          userId: p.userId,
-        })),
-        packsSelectedOrder: packsSelectedOrder.map(p => ({
-          id: p.id,
-          name: p.name,
-          imageUrl: p.imageUrl,
-        })),
-        restockComplete: false,
-        tournament: get().pendingTournament ?? undefined,
-      });
-
+      const result = await activeChaosDraftRepository.finalize(commandFor(state));
+      if (!mutationIsCurrent(generation) || result.draftId !== state.finalDraftId) {
+        throw new Error('The finalized draft result does not match the active session.');
+      }
       set({ confirmed: true });
-    } catch (error) {
-      console.error('Failed to confirm session:', error);
+      return result;
+    } finally {
+      if (mutationIsCurrent(generation)) set({ mutationPending: false });
     }
   },
 
-  // This function works as-is. All IDs are now strings, so `p.id === lastPackSelected.id` is correct.
-  undoLastPick: () => {
-    const { packsSelectedOrder, players, tempInventory } = get();
+  reconcileConfirmation: async () => {
+    const state = get();
+    requireMutationAvailable(state);
+    const generation = beginMutation(set);
 
-    if (packsSelectedOrder.length === 0) return;
-
-    const lastPackSelected = packsSelectedOrder[packsSelectedOrder.length - 1];
-    const newPacksSelectedOrder = packsSelectedOrder.slice(0, -1);
-
-    const playerIndex = (packsSelectedOrder.length - 1) % players.length;
-    const updatedPlayers = [...players];
-    updatedPlayers[playerIndex].selectedPacks = updatedPlayers[
-      playerIndex
-    ].selectedPacks.slice(0, -1);
-
-    const packInTemp = tempInventory.find((p) => p.id === lastPackSelected.id);
-    let newTempInventory;
-
-    if (packInTemp) {
-      newTempInventory = tempInventory.map((p) =>
-        p.id === lastPackSelected.id ? { ...p, inPerson: p.inPerson + 1 } : p
-      );
-    } else {
-      // If the pack was fully depleted, it was filtered out. Re-add it with a quantity of 1.
-      const packToReAdd = { ...lastPackSelected, inPerson: 1 };
-      newTempInventory = [...tempInventory, packToReAdd];
+    try {
+      const result = await activeChaosDraftRepository.reconcile(state.ownerId, state.finalDraftId);
+      if (!mutationIsCurrent(generation)) {
+        throw new Error('The chaos draft session changed during confirmation reconciliation.');
+      }
+      if (result.status === 'committed') {
+        if (result.draftId !== state.finalDraftId) return { status: 'integrity-error' };
+        set({ confirmed: true });
+      } else if (result.status === 'not-committed') {
+        if (
+          result.checkpoint.ownerId !== state.ownerId ||
+          result.checkpoint.finalDraftId !== state.finalDraftId
+        ) {
+          return { status: 'integrity-error' };
+        }
+        get().hydrateSession(result.checkpoint);
+      }
+      return result;
+    } finally {
+      if (mutationIsCurrent(generation)) set({ mutationPending: false });
     }
+  },
 
-    set({
-      players: updatedPlayers,
-      packsSelectedOrder: newPacksSelectedOrder,
-      tempInventory: newTempInventory,
-      confirmed: false,
-    });
+  clearLocalSession: () => {
+    mutationGeneration += 1;
+    checkpointSnapshot = null;
+    pendingAppend = null;
+    set({ ...emptySession });
   },
 }));

@@ -8,11 +8,9 @@ import {
   deleteDoc,
   where,
   query,
-  runTransaction,
   writeBatch,
   getDoc,
 } from "firebase/firestore";
-import type { DocumentReference } from "firebase/firestore";
 import { db, auth } from "../firebase";
 
 export interface Pack {
@@ -33,7 +31,6 @@ interface InventoryState {
   deletePack: (id: string) => Promise<void>;
   loadPacks: () => Promise<void>;
   clearAll: () => Promise<void>;
-  confirmSessionPicks: (selectedPacks: Pack[]) => Promise<void>;
 }
 
 const packsCollectionRef = collection(db, "packs");
@@ -152,50 +149,6 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
       set({ packs: [] });
     } catch (error) {
       console.error("Error clearing all packs: ", error);
-    }
-  },
-
-  confirmSessionPicks: async (selectedPacks) => {
-    const userId = auth.currentUser?.uid;
-    if (!userId) return;
-
-    const packCounts = new Map<string, number>();
-    for (const pack of selectedPacks) {
-      packCounts.set(pack.id, (packCounts.get(pack.id) || 0) + 1);
-    }
-
-    try {
-      await runTransaction(db, async (transaction) => {
-        const docsToUpdate: {
-          docRef: DocumentReference;
-          newQuantity: number;
-        }[] = [];
-
-        // 1. READS FIRST
-        for (const [packId, numPicked] of packCounts.entries()) {
-          const docRef = doc(db, "packs", packId);
-          const packDoc = await transaction.get(docRef);
-
-          if (!packDoc.exists() || packDoc.data().ownerId !== userId) {
-            throw new Error(`Pack ${packId} not found or permission denied.`);
-          }
-
-          const newQuantity = Math.max(
-            0,
-            packDoc.data().inPerson - numPicked
-          );
-          docsToUpdate.push({ docRef, newQuantity });
-        }
-
-        // 2. WRITES SECOND
-        for (const { docRef, newQuantity } of docsToUpdate) {
-          transaction.update(docRef, { inPerson: newQuantity });
-        }
-      });
-
-      await get().loadPacks(); // Refresh state after transaction
-    } catch (error) {
-      console.error("Failed to confirm session transaction: ", error);
     }
   },
 }));
