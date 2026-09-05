@@ -2,6 +2,14 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import Papa from "papaparse";
 import { auth, db } from "../firebase"; // ✅ use your initialized Firebase
 
+interface InventoryCsvRow {
+  "Firestore ID": string;
+  "Pack Name": string;
+  "Image URL": string;
+  "Available": number;
+  "In Transit": number;
+}
+
 export async function exportInventoryToCSV() {
   const user = auth.currentUser;
   if (!user) {
@@ -21,7 +29,7 @@ export async function exportInventoryToCSV() {
     }
 
     // Convert snapshot data to plain objects
-    const data: any[] = [];
+    const data: InventoryCsvRow[] = [];
     snapshot.forEach((doc) => {
       const pack = doc.data();
       data.push({
@@ -50,8 +58,9 @@ export async function exportInventoryToCSV() {
     document.body.removeChild(link);
 
     console.log(`✅ Exported ${data.length} packs to CSV.`);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error exporting inventory:", error);
-    alert(`Failed to export inventory: ${error.message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    alert(`Failed to export inventory: ${message}`);
   }
 }

@@ -871,7 +871,11 @@ export default function DraftHistory() {
                             <button
                               onClick={() => setExpandedAllocationIds(prev => {
                                 const next = new Set(prev);
-                                next.has(draft.id) ? next.delete(draft.id) : next.add(draft.id);
+                                if (next.has(draft.id)) {
+                                  next.delete(draft.id);
+                                } else {
+                                  next.add(draft.id);
+                                }
                                 return next;
                               })}
                               className="text-xs text-gray-500 hover:text-gray-300 transition-colors"

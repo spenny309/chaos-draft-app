@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { Timestamp } from 'firebase/firestore';
 import { computeStandings, generateSwissPairings } from '../swissPairings';
 import type { DraftPlayer, TournamentRound } from '../../types';
 
@@ -6,7 +7,7 @@ function p(id: string): DraftPlayer {
   return { id, name: id, userId: null };
 }
 
-const fakeTs = { seconds: 0, nanoseconds: 0, toDate: () => new Date(), toMillis: () => 0 } as any;
+const fakeTs = { seconds: 0, nanoseconds: 0, toDate: () => new Date(), toMillis: () => 0 } as unknown as Timestamp;
 
 function makeRound(
   roundNumber: number,

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Timestamp } from 'firebase/firestore';
 
 // Use vi.hoisted so the mock variables are available when vi.mock factories run
 const {
@@ -136,8 +137,8 @@ describe('useCubeStore', () => {
   it('deleteCube does not optimistically update local state (relies on onSnapshot)', async () => {
     useCubeStore.setState({
       cubes: [
-        { id: 'cube1', name: 'A', createdBy: 'u1', createdAt: {} as any },
-        { id: 'cube2', name: 'B', createdBy: 'u2', createdAt: {} as any },
+        { id: 'cube1', name: 'A', createdBy: 'u1', createdAt: {} as unknown as Timestamp },
+        { id: 'cube2', name: 'B', createdBy: 'u2', createdAt: {} as unknown as Timestamp },
       ],
       loading: false,
     });

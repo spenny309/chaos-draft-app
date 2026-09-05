@@ -12,6 +12,7 @@ import {
   writeBatch,
   getDoc,
 } from "firebase/firestore";
+import type { DocumentReference } from "firebase/firestore";
 import { db, auth } from "../firebase";
 
 export interface Pack {
@@ -102,7 +103,13 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
 
     try {
       const docRef = doc(db, "packs", pack.id);
-      const { id, ownerId, ...packData } = pack;
+      const packData = {
+        catalogId: pack.catalogId,
+        name: pack.name,
+        imageUrl: pack.imageUrl,
+        inPerson: pack.inPerson,
+        inTransit: pack.inTransit,
+      };
       await updateDoc(docRef, packData);
       await get().loadPacks(); // Refresh state
     } catch (error) {
@@ -160,7 +167,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
     try {
       await runTransaction(db, async (transaction) => {
         const docsToUpdate: {
-          docRef: any;
+          docRef: DocumentReference;
           newQuantity: number;
         }[] = [];
 

@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import type { Timestamp } from 'firebase/firestore';
 import { draftTitle } from '../draftTitle';
 import type { Draft } from '../../types';
 
-const fakeTs = { seconds: 0, nanoseconds: 0, toDate: () => new Date(), toMillis: () => 0 } as any;
+const fakeTs = { seconds: 0, nanoseconds: 0, toDate: () => new Date(), toMillis: () => 0 } as unknown as Timestamp;
 
 function fakeDraft(overrides: Partial<Draft>): Draft {
   return {
