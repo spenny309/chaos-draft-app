@@ -1,26 +1,23 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import PackCatalogSearch from '../components/PackCatalogSearch';
 import PlayerSearch from '../components/PlayerSearch';
 import { useInventoryStore } from '../state/inventoryStore';
 import { useCubeStore } from '../state/cubeStore';
 import type { PackCatalogEntry, DraftFormat, DraftPlayer } from '../types';
 import { DEFAULT_PACKS_PER_PERSON } from '../types';
-
-type SetupFormat = 'Chaos Draft' | DraftFormat;
-
-const ALL_FORMATS: SetupFormat[] = [
-  'Chaos Draft',
-  'Regular Draft',
-  'Mobius Draft',
-  'Sealed',
-  'Team Sealed',
-];
+import {
+  availableCardSources,
+  availableSetupFormats,
+  type SetupFormat,
+} from '../utils/chaosDraftAccess';
 
 const DEFAULT_PLAYERS: Partial<Record<SetupFormat, number>> = {
   'Team Sealed': 6,
 };
 
 interface RegularDraftSetupProps {
+  isApprovedAdmin: boolean;
+  canStartChaos: boolean;
   onNext: (config: {
     players: DraftPlayer[];
     sets: PackCatalogEntry[];
@@ -34,7 +31,12 @@ interface RegularDraftSetupProps {
   onStartChaos: (players: DraftPlayer[]) => void;
 }
 
-export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraftSetupProps) {
+export default function RegularDraftSetup({
+  isApprovedAdmin,
+  canStartChaos,
+  onNext,
+  onStartChaos,
+}: RegularDraftSetupProps) {
   const packs = useInventoryStore(s => s.packs);
   const { cubes } = useCubeStore();
 
@@ -42,7 +44,7 @@ export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraft
   const [players, setPlayers] = useState<DraftPlayer[]>(
     Array.from({ length: 4 }, (_, i) => ({ id: `player-${i + 1}`, name: '', userId: null }))
   );
-  const [format, setFormat] = useState<SetupFormat>('Chaos Draft');
+  const [format, setFormat] = useState<SetupFormat>(() => availableSetupFormats(isApprovedAdmin)[0]);
   const [sets, setSets] = useState<PackCatalogEntry[]>([]);
   const [packsPerPerson, setPacksPerPerson] = useState(DEFAULT_PACKS_PER_PERSON['Regular Draft']);
   const [source, setSource] = useState<'sets' | 'cube'>('sets');
@@ -52,6 +54,13 @@ export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraft
   const [selectedCubeExternalUrl, setSelectedCubeExternalUrl] = useState<string | null>(null);
 
   const isChaos = format === 'Chaos Draft';
+
+  useEffect(() => {
+    if (!isApprovedAdmin && format === 'Chaos Draft') {
+      setFormat('Regular Draft');
+      setPacksPerPerson(DEFAULT_PACKS_PER_PERSON['Regular Draft']);
+    }
+  }, [format, isApprovedAdmin]);
 
   const handleNumPlayersChange = (n: number) => {
     setNumPlayers(n);
@@ -95,6 +104,7 @@ export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraft
 
   const handleSubmit = () => {
     if (isChaos) {
+      if (!canStartChaos) return;
       const namedPlayers = players.map((p, i) => ({
         ...p,
         name: p.name.trim() || `Player ${i + 1}`,
@@ -119,9 +129,10 @@ export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraft
   const isRounded = sets.length > 0 && totalPacks % sets.length !== 0;
 
   const canProceed = players.every(p => p.name.trim().length > 0) && (
-    isChaos ||
-    (source === 'sets' && sets.length > 0 && packsPerPerson > 0) ||
-    (source === 'cube' && selectedCubeId != null && packsPerPerson > 0)
+    isChaos
+      ? canStartChaos
+      : (source === 'sets' && sets.length > 0 && packsPerPerson > 0) ||
+        (source === 'cube' && selectedCubeId != null && packsPerPerson > 0)
   );
 
   return (
@@ -132,7 +143,7 @@ export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraft
       <div className="bg-gray-800 rounded-xl p-5 border border-gray-700 space-y-3">
         <h3 className="font-semibold text-gray-200">Format</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {ALL_FORMATS.map(f => (
+          {availableSetupFormats(isApprovedAdmin).map(f => (
             <button
               key={f}
               onClick={() => handleFormatChange(f)}
@@ -182,22 +193,19 @@ export default function RegularDraftSetup({ onNext, onStartChaos }: RegularDraft
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-gray-200">Card Source</h3>
             <div className="flex rounded-lg overflow-hidden border border-gray-600">
-              <button
-                onClick={() => setSource('sets')}
-                className={`px-4 py-1.5 text-sm font-medium transition-colors ${
-                  source === 'sets' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                }`}
-              >
-                Sets
-              </button>
-              <button
-                onClick={() => setSource('cube')}
-                className={`px-4 py-1.5 text-sm font-medium transition-colors ${
-                  source === 'cube' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                }`}
-              >
-                Cube
-              </button>
+              {availableCardSources(format).map(cardSource => (
+                <button
+                  key={cardSource}
+                  onClick={() => setSource(cardSource)}
+                  className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                    source === cardSource
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  {cardSource === 'sets' ? 'Sets' : 'Cube'}
+                </button>
+              ))}
             </div>
           </div>
 

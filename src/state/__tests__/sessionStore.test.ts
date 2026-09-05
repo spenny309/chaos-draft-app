@@ -8,7 +8,7 @@ import type {
   DraftTournament,
 } from '../../types';
 
-const { repositoryMock, authMock } = vi.hoisted(() => ({
+const { repositoryMock, authMock, profileMock } = vi.hoisted(() => ({
   repositoryMock: {
     get: vi.fn(),
     create: vi.fn(),
@@ -20,12 +20,22 @@ const { repositoryMock, authMock } = vi.hoisted(() => ({
     reconcile: vi.fn(),
   },
   authMock: { currentUser: { uid: 'admin-1' } as { uid: string } | null },
+  profileMock: {
+    profile: { uid: 'admin-1', role: 'admin', status: 'approved' } as {
+      uid: string;
+      role: string;
+      status: string;
+    } | null,
+  },
 }));
 
 vi.mock('../../firebase', () => ({ auth: authMock, db: {} }));
 vi.mock('../../repositories/activeChaosDraftRepository', () => ({
   activeChaosDraftRepository: repositoryMock,
   ChaosDraftConflictError: class ChaosDraftConflictError extends Error {},
+}));
+vi.mock('../userStore', () => ({
+  useUserStore: { getState: () => profileMock },
 }));
 vi.mock('../inventoryStore', async () => {
   const { create } = await import('zustand');
@@ -108,6 +118,7 @@ function hydrateFixture(overrides: Partial<ActiveChaosDraft> = {}): void {
 beforeEach(() => {
   vi.clearAllMocks();
   authMock.currentUser = { uid: 'admin-1' };
+  profileMock.profile = { uid: 'admin-1', role: 'admin', status: 'approved' };
   useInventoryStore.setState({ packs: inventoryFixture(), loading: false });
   useSessionStore.getState().clearLocalSession();
 });
@@ -140,6 +151,35 @@ describe('durable chaos session store', () => {
 
     await expect(useSessionStore.getState().initializeSession(players)).rejects.toThrow(/sign/i);
     expect(repositoryMock.create).not.toHaveBeenCalled();
+  });
+
+  it('does not hydrate a created checkpoint after the initiating admin changes', async () => {
+    let resolveCreate!: (checkpoint: ActiveChaosDraft) => void;
+    repositoryMock.create.mockReturnValue(new Promise((resolve) => { resolveCreate = resolve; }));
+
+    const create = useSessionStore.getState().initializeSession(players);
+    authMock.currentUser = { uid: 'admin-2' };
+    profileMock.profile = { uid: 'admin-2', role: 'admin', status: 'approved' };
+    resolveCreate(checkpointFixture());
+
+    await expect(create).rejects.toThrow(/admin|account|owner|signed/i);
+    expect(useSessionStore.getState()).toMatchObject({
+      ownerId: '', sessionId: '', players: [], mutationPending: false,
+    });
+  });
+
+  it('does not hydrate a created checkpoint after admin approval is revoked', async () => {
+    let resolveCreate!: (checkpoint: ActiveChaosDraft) => void;
+    repositoryMock.create.mockReturnValue(new Promise((resolve) => { resolveCreate = resolve; }));
+
+    const create = useSessionStore.getState().initializeSession(players);
+    profileMock.profile = { uid: 'admin-1', role: 'admin', status: 'pending' };
+    resolveCreate(checkpointFixture());
+
+    await expect(create).rejects.toThrow(/approved admin/i);
+    expect(useSessionStore.getState()).toMatchObject({
+      ownerId: '', sessionId: '', players: [], mutationPending: false,
+    });
   });
 
   it('hydrates a partial checkpoint into players and temporary inventory', () => {
@@ -270,6 +310,22 @@ describe('durable chaos session store', () => {
 
     expect(useSessionStore.getState()).toMatchObject({
       ownerId: '', sessionId: '', finalDraftId: '', revision: 0, players: [], mutationPending: false,
+    });
+  });
+
+  it('does not clear local session state after the initiating admin changes during discard', async () => {
+    hydrateFixture();
+    let resolveDiscard!: () => void;
+    repositoryMock.discard.mockReturnValue(new Promise<void>((resolve) => { resolveDiscard = resolve; }));
+
+    const discard = useSessionStore.getState().discardSession();
+    authMock.currentUser = { uid: 'admin-2' };
+    profileMock.profile = { uid: 'admin-2', role: 'admin', status: 'approved' };
+    resolveDiscard();
+
+    await expect(discard).rejects.toThrow(/admin|account|owner|signed/i);
+    expect(useSessionStore.getState()).toMatchObject({
+      ownerId: 'admin-1', sessionId: 'session-1', players: expect.any(Array), mutationPending: false,
     });
   });
 

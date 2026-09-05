@@ -9,7 +9,9 @@ import type {
   FinalizationReconciliation,
 } from '../types';
 import { reconstructChaosSession } from '../utils/chaosDraftCheckpoint';
+import { shouldDiscoverChaosCheckpoint } from '../utils/chaosDraftAccess';
 import { useInventoryStore, type Pack } from './inventoryStore';
+import { useUserStore } from './userStore';
 
 export interface Player {
   id: string;
@@ -124,12 +126,24 @@ function mutationIsCurrent(generation: number): boolean {
   return mutationGeneration === generation;
 }
 
+function approvedOwnerIsCurrent(ownerId: string): boolean {
+  const profile = useUserStore.getState().profile;
+  return (
+    auth.currentUser?.uid === ownerId &&
+    profile?.uid === ownerId &&
+    shouldDiscoverChaosCheckpoint(profile)
+  );
+}
+
 export const useSessionStore = create<SessionState>((set, get) => ({
   ...emptySession,
 
   initializeSession: async (players, numPacks = players.length * 3) => {
     const ownerId = auth.currentUser?.uid;
     if (!ownerId) throw new Error('You must be signed in to start a chaos draft.');
+    if (!approvedOwnerIsCurrent(ownerId)) {
+      throw new Error('An approved admin account is required to start a chaos draft.');
+    }
     if (get().mutationPending) throw new Error('A chaos draft mutation is already pending.');
 
     const generation = beginMutation(set);
@@ -143,6 +157,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       });
       if (!mutationIsCurrent(generation)) {
         throw new Error('The chaos draft session changed while it was being created.');
+      }
+      if (!approvedOwnerIsCurrent(ownerId)) {
+        throw new Error('The approved admin account changed while the chaos draft was being created.');
       }
       get().hydrateSession(checkpoint);
     } catch (error) {
@@ -301,12 +318,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   discardSession: async () => {
     const state = get();
     requireMutationAvailable(state);
+    if (!approvedOwnerIsCurrent(state.ownerId)) {
+      throw new Error('An approved admin account is required to discard this chaos draft.');
+    }
     const generation = beginMutation(set);
 
     try {
       await activeChaosDraftRepository.discard(commandFor(state));
       if (!mutationIsCurrent(generation)) {
         throw new Error('The chaos draft session changed while it was being discarded.');
+      }
+      if (!approvedOwnerIsCurrent(state.ownerId)) {
+        throw new Error('The approved admin account changed while the chaos draft was being discarded.');
       }
       get().clearLocalSession();
     } finally {
