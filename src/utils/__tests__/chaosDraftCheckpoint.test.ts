@@ -1,7 +1,7 @@
 import { Timestamp } from 'firebase/firestore';
 import { describe, expect, it } from 'vitest';
 import type { Pack } from '../../state/inventoryStore';
-import type { ActiveChaosDraft } from '../../types';
+import type { ActiveChaosDraft, DraftTournament } from '../../types';
 import {
   countSelectedPacks,
   reconstructChaosSession,
@@ -46,6 +46,18 @@ const checkpoint: ActiveChaosDraft = {
   ],
   createdAt: Timestamp.fromMillis(1),
   updatedAt: Timestamp.fromMillis(2),
+};
+
+const tournament: DraftTournament = {
+  seats: checkpoint.players.map((player, index) => ({ playerId: player.id, seat: index + 1 })),
+  rounds: [{
+    roundNumber: 1,
+    pairings: [{ id: 'match-1', player1Id: 'p1', player2Id: 'p2', status: 'pending' }],
+    status: 'active',
+  }],
+  currentRound: 1,
+  totalRounds: 1,
+  status: 'active',
 };
 
 describe('chaos checkpoint reconstruction', () => {
@@ -149,10 +161,39 @@ describe('chaos checkpoint validation', () => {
     ],
     ['invalid creation timestamp', { ...checkpoint, createdAt: null }, /timestamp/i],
     ['invalid update timestamp', { ...checkpoint, updatedAt: {} }, /timestamp/i],
+    [
+      'null round',
+      { ...checkpoint, pendingTournament: { ...tournament, rounds: [null] } },
+      /tournament|round/i,
+    ],
+    [
+      'wrong-type pairing',
+      {
+        ...checkpoint,
+        pendingTournament: {
+          ...tournament,
+          rounds: [{ ...tournament.rounds[0], pairings: ['bad-pairing'] }],
+        },
+      },
+      /tournament|pairing/i,
+    ],
+    [
+      'null seat',
+      { ...checkpoint, pendingTournament: { ...tournament, seats: [null] } },
+      /tournament|seat/i,
+    ],
   ])('%s is rejected', (_label, value, pattern) => {
     expect(() => validateCheckpointShape(value as ActiveChaosDraft, 'admin-1')).toThrow(
       pattern as RegExp,
     );
+  });
+
+  it('accepts a structurally valid persisted tournament after an undo made picks incomplete', () => {
+    expect(() => validateCheckpointShape({
+      ...checkpoint,
+      packsSelectedOrder: checkpoint.packsSelectedOrder.slice(0, 2),
+      pendingTournament: tournament,
+    }, 'admin-1')).not.toThrow();
   });
 
   it.each([

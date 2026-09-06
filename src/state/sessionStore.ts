@@ -366,7 +366,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const generation = beginMutation(set);
 
     try {
-      const result = await activeChaosDraftRepository.reconcile(state.ownerId, state.finalDraftId);
+      const result = await activeChaosDraftRepository.reconcile(
+        state.ownerId,
+        state.sessionId,
+        state.finalDraftId,
+      );
       if (!mutationIsCurrent(generation)) {
         throw new Error('The chaos draft session changed during confirmation reconciliation.');
       }
@@ -376,6 +380,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       } else if (result.status === 'not-committed') {
         if (
           result.checkpoint.ownerId !== state.ownerId ||
+          result.checkpoint.sessionId !== state.sessionId ||
           result.checkpoint.finalDraftId !== state.finalDraftId
         ) {
           return { status: 'integrity-error' };

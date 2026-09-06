@@ -15,7 +15,11 @@ import type {
   DraftTournament,
   FinalizationReconciliation,
 } from '../types';
-import { countSelectedPacks, validateCheckpointShape } from '../utils/chaosDraftCheckpoint';
+import {
+  countSelectedPacks,
+  validateCheckpointShape,
+  validateTournamentForPlayers,
+} from '../utils/chaosDraftCheckpoint';
 
 export class ChaosDraftConflictError extends Error {
   constructor(message: string) {
@@ -58,7 +62,11 @@ export interface ActiveChaosDraftRepository {
   ): Promise<CheckpointMutationResult>;
   discard(command: CheckpointCommand): Promise<void>;
   finalize(command: CheckpointCommand): Promise<{ draftId: string }>;
-  reconcile(ownerId: string, finalDraftId: string): Promise<FinalizationReconciliation>;
+  reconcile(
+    ownerId: string,
+    expectedSessionId: string,
+    finalDraftId: string,
+  ): Promise<FinalizationReconciliation>;
 }
 
 export interface FirestoreTransactionAdapter {
@@ -183,86 +191,17 @@ function readInventoryPack(value: unknown, packId: string, ownerId: string): Inv
   return value as unknown as InventoryPackDocument;
 }
 
-function sameMembers(actual: Set<string>, expected: Set<string>): boolean {
-  return actual.size === expected.size && [...actual].every((id) => expected.has(id));
-}
-
 function validateTournament(checkpoint: ActiveChaosDraft, tournament: DraftTournament): void {
   if (checkpoint.packsSelectedOrder.length !== checkpoint.numPacks) {
     throw new ChaosDraftValidationError(
       'The chaos draft must be complete before saving its tournament.',
     );
   }
-  if (
-    !isRecord(tournament) ||
-    tournament.status !== 'active' ||
-    tournament.currentRound !== 1 ||
-    !Array.isArray(tournament.rounds)
-  ) {
-    throw new ChaosDraftValidationError('Tournament Round 1 is invalid.');
-  }
-
-  const roundOne = tournament.rounds.find((round) => round.roundNumber === 1);
-  if (!roundOne || roundOne.status !== 'active' || !Array.isArray(roundOne.pairings)) {
-    throw new ChaosDraftValidationError('Tournament Round 1 is not active.');
-  }
-
-  const expectedPlayers = new Set(checkpoint.players.map((player) => player.id));
-  const pairedPlayers = new Set<string>();
-  let byePlayerId: string | null = null;
-
-  for (const pairing of roundOne.pairings) {
-    if (!isNonEmptyString(pairing.player1Id) || pairedPlayers.has(pairing.player1Id)) {
-      throw new ChaosDraftValidationError('Tournament players do not match checkpoint players.');
-    }
-    pairedPlayers.add(pairing.player1Id);
-
-    if (pairing.player2Id === null) {
-      if (byePlayerId !== null) {
-        throw new ChaosDraftValidationError('Tournament players do not match checkpoint players.');
-      }
-      byePlayerId = pairing.player1Id;
-    } else if (!isNonEmptyString(pairing.player2Id) || pairedPlayers.has(pairing.player2Id)) {
-      throw new ChaosDraftValidationError('Tournament players do not match checkpoint players.');
-    } else {
-      pairedPlayers.add(pairing.player2Id);
-    }
-  }
-
-  const expectedByeCount = checkpoint.players.length % 2;
-  if (
-    !sameMembers(pairedPlayers, expectedPlayers) ||
-    roundOne.pairings.length !== Math.ceil(checkpoint.players.length / 2) ||
-    Number(byePlayerId !== null) !== expectedByeCount
-  ) {
-    throw new ChaosDraftValidationError('Tournament players do not match checkpoint players.');
-  }
-
-  if (!Array.isArray(tournament.seats)) {
-    throw new ChaosDraftValidationError('Tournament seats are invalid.');
-  }
-  const expectedSeatsWithoutBye = new Set(expectedPlayers);
-  if (byePlayerId) expectedSeatsWithoutBye.delete(byePlayerId);
-  const seatPlayers = new Set<string>();
-  const seatNumbers = new Set<number>();
-  for (const seat of tournament.seats) {
-    if (
-      !expectedPlayers.has(seat.playerId) ||
-      seatPlayers.has(seat.playerId) ||
-      !Number.isInteger(seat.seat) ||
-      seat.seat <= 0 ||
-      seatNumbers.has(seat.seat)
-    ) {
-      throw new ChaosDraftValidationError('Tournament seats do not match checkpoint players.');
-    }
-    seatPlayers.add(seat.playerId);
-    seatNumbers.add(seat.seat);
-  }
-  if (
-    !sameMembers(seatPlayers, expectedPlayers) &&
-    !sameMembers(seatPlayers, expectedSeatsWithoutBye)
-  ) {
-    throw new ChaosDraftValidationError('Tournament seats do not match checkpoint players.');
+  try {
+    validateTournamentForPlayers(tournament, checkpoint.players);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Tournament Round 1 is invalid.';
+    throw new ChaosDraftValidationError(message);
   }
 }
 
@@ -508,10 +447,10 @@ export function createActiveChaosDraftRepository(
       });
     },
 
-    async reconcile(ownerId, finalDraftId) {
+    async reconcile(ownerId, expectedSessionId, finalDraftId) {
       requireOwner(ownerId);
-      if (!isNonEmptyString(finalDraftId)) {
-        throw new ChaosDraftValidationError('The final draft ID is required.');
+      if (!isNonEmptyString(expectedSessionId) || !isNonEmptyString(finalDraftId)) {
+        throw new ChaosDraftValidationError('The session and final draft IDs are required.');
       }
       return adapter.runTransaction(async (transaction) => {
         const draft = await transaction.get(`drafts/${finalDraftId}`);
@@ -523,7 +462,7 @@ export function createActiveChaosDraftRepository(
             draft.status !== 'finalized' ||
             draft.createdBy !== ownerId ||
             draft.finalizedBy !== ownerId ||
-            !isNonEmptyString(draft.sessionId)
+            draft.sessionId !== expectedSessionId
           ) {
             return { status: 'integrity-error' };
           }
@@ -531,7 +470,10 @@ export function createActiveChaosDraftRepository(
         }
         if (draft === null && checkpointValue !== null) {
           const checkpoint = readCheckpoint(checkpointValue, ownerId);
-          if (checkpoint.finalDraftId !== finalDraftId) return { status: 'integrity-error' };
+          if (
+            checkpoint.sessionId !== expectedSessionId ||
+            checkpoint.finalDraftId !== finalDraftId
+          ) return { status: 'integrity-error' };
           return { status: 'not-committed', checkpoint };
         }
         return { status: 'integrity-error' };

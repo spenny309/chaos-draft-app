@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  ChaosDraftValidationError,
   createActiveChaosDraftRepository,
   createFirestoreAdapter,
   type ActiveChaosDraftRepository,
@@ -361,6 +362,31 @@ describeWithEmulator('active chaos draft Firestore integration', () => {
     expect((await getDoc(doc(admin.db, 'activeChaosDrafts', 'admin-1'))).exists()).toBe(true);
   });
 
+  it('classifies malformed nested tournament finalization as validation and preserves all documents', async () => {
+    const admin = actor('admin-1');
+    await provision(admin, 'admin');
+    await seedInventory(admin);
+    const created = await admin.repository.create(createInput());
+    await admin.repository.appendPack(command(0), packRef('a'));
+    await admin.repository.appendPack(command(1), packRef('b'));
+    await admin.repository.appendPack(command(2), packRef('a'));
+    await updateDoc(doc(admin.db, 'activeChaosDrafts', 'admin-1'), {
+      revision: 4,
+      pendingTournament: {
+        ...tournament,
+        rounds: [{ ...tournament.rounds[0], pairings: [null] }],
+      },
+      updatedAt: serverTimestamp(),
+    });
+
+    await expect(admin.repository.finalize(command(4))).rejects.toBeInstanceOf(
+      ChaosDraftValidationError,
+    );
+    expect((await getDoc(doc(admin.db, 'drafts', created.finalDraftId))).exists()).toBe(false);
+    await expectInventory(admin, { a: 4, b: 2 });
+    expect((await getDoc(doc(admin.db, 'activeChaosDrafts', 'admin-1'))).exists()).toBe(true);
+  });
+
   it('does not let finalization race ahead of tournament persistence', async () => {
     const admin = actor('admin-1');
     await provision(admin, 'admin');
@@ -441,8 +467,21 @@ describeWithEmulator('active chaos draft Firestore integration', () => {
       type: 'chaos', status: 'finalized', createdBy: 'admin-1', finalizedBy: 'admin-1',
       sessionId: 'session-1', createdAt: serverTimestamp(), finalizedAt: serverTimestamp(), players,
     });
-    await expect(admin.repository.reconcile('admin-1', 'draft-1')).resolves.toEqual({
+    await expect(admin.repository.reconcile('admin-1', 'session-1', 'draft-1')).resolves.toEqual({
       status: 'committed', draftId: 'draft-1',
+    });
+  });
+
+  it('reconciles a draft from a different session as an integrity error', async () => {
+    const admin = actor('admin-1');
+    await provision(admin, 'admin');
+    await setDoc(doc(admin.db, 'drafts', 'draft-1'), {
+      type: 'chaos', status: 'finalized', createdBy: 'admin-1', finalizedBy: 'admin-1',
+      sessionId: 'other-session', createdAt: serverTimestamp(), finalizedAt: serverTimestamp(), players,
+    });
+
+    await expect(admin.repository.reconcile('admin-1', 'session-1', 'draft-1')).resolves.toEqual({
+      status: 'integrity-error',
     });
   });
 
@@ -450,7 +489,7 @@ describeWithEmulator('active chaos draft Firestore integration', () => {
     const admin = actor('admin-1');
     await provision(admin, 'admin');
     const checkpoint = await admin.repository.create(createInput());
-    await expect(admin.repository.reconcile('admin-1', checkpoint.finalDraftId)).resolves.toMatchObject({
+    await expect(admin.repository.reconcile('admin-1', 'session-1', checkpoint.finalDraftId)).resolves.toMatchObject({
       status: 'not-committed', checkpoint: { finalDraftId: checkpoint.finalDraftId },
     });
   });
@@ -463,7 +502,7 @@ describeWithEmulator('active chaos draft Firestore integration', () => {
       type: 'chaos', status: 'finalized', createdBy: 'admin-1', finalizedBy: 'admin-1',
       sessionId: 'session-1', createdAt: serverTimestamp(), finalizedAt: serverTimestamp(), players,
     });
-    await expect(admin.repository.reconcile('admin-1', checkpoint.finalDraftId)).resolves.toEqual({
+    await expect(admin.repository.reconcile('admin-1', 'session-1', checkpoint.finalDraftId)).resolves.toEqual({
       status: 'integrity-error',
     });
   });
@@ -471,7 +510,7 @@ describeWithEmulator('active chaos draft Firestore integration', () => {
   it('reconciles neither document present as an integrity error', async () => {
     const admin = actor('admin-1');
     await provision(admin, 'admin');
-    await expect(admin.repository.reconcile('admin-1', 'missing-draft')).resolves.toEqual({
+    await expect(admin.repository.reconcile('admin-1', 'session-1', 'missing-draft')).resolves.toEqual({
       status: 'integrity-error',
     });
   });
@@ -483,11 +522,11 @@ describeWithEmulator('active chaos draft Firestore integration', () => {
     const { finalDraftId, revision } = await buildCompleteCheckpoint(admin);
 
     const finalizePromise = admin.repository.finalize(command(revision));
-    const racingReconciliation = admin.repository.reconcile('admin-1', finalDraftId);
+    const racingReconciliation = admin.repository.reconcile('admin-1', 'session-1', finalDraftId);
     const raceResult = await racingReconciliation;
     expect(['committed', 'not-committed']).toContain(raceResult.status);
     await finalizePromise;
-    await expect(admin.repository.reconcile('admin-1', finalDraftId)).resolves.toEqual({
+    await expect(admin.repository.reconcile('admin-1', 'session-1', finalDraftId)).resolves.toEqual({
       status: 'committed', draftId: finalDraftId,
     });
   });
@@ -509,7 +548,7 @@ describeWithEmulator('active chaos draft Firestore integration', () => {
       createFirestoreAdapter(isolatedDb),
       () => 'admin-unavailable',
     );
-    const operation = repository.reconcile('admin-unavailable', 'draft-1');
+    const operation = repository.reconcile('admin-unavailable', 'session-1', 'draft-1');
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     try {

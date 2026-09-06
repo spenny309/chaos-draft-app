@@ -331,6 +331,41 @@ describe('durable chaos session store', () => {
     expect(useSessionStore.getState().players[1].selectedPacks[0].id).toBe('pack-1');
   });
 
+  it('preserves the current local session when persisted tournament hydration is malformed', () => {
+    hydrateFixture({
+      revision: 2,
+      packsSelectedOrder: [{ id: 'pack-1', name: 'Pack One', imageUrl: 'one.jpg' }],
+    });
+    const before = useSessionStore.getState();
+
+    expect(() => useSessionStore.getState().hydrateSession(checkpointFixture({
+      revision: 3,
+      pendingTournament: {
+        ...tournamentFixture(),
+        rounds: [null],
+      } as unknown as DraftTournament,
+    }))).toThrow(/tournament|round/i);
+
+    expect(useSessionStore.getState()).toMatchObject({
+      sessionId: before.sessionId,
+      revision: before.revision,
+      packsSelectedOrder: before.packsSelectedOrder,
+      pendingTournament: before.pendingTournament,
+    });
+  });
+
+  it('reconstructs a valid persisted tournament after undo leaves picks incomplete', () => {
+    hydrateFixture({
+      revision: 4,
+      packsSelectedOrder: [{ id: 'pack-1', name: 'Pack One', imageUrl: 'one.jpg' }],
+      pendingTournament: tournamentFixture(),
+    });
+
+    expect(useSessionStore.getState()).toMatchObject({
+      sessionId: 'session-1', revision: 4, pendingTournament: tournamentFixture(),
+    });
+  });
+
   it('keeps local state when tournament persistence or discard fails', async () => {
     hydrateFixture();
     repositoryMock.saveTournament.mockRejectedValue(new Error('offline tournament'));
@@ -428,6 +463,9 @@ describe('durable chaos session store', () => {
     await expect(useSessionStore.getState().reconcileConfirmation()).resolves.toMatchObject({
       status: 'not-committed',
     });
+    expect(repositoryMock.reconcile).toHaveBeenLastCalledWith(
+      'admin-1', 'session-1', 'draft-1',
+    );
     expect(useSessionStore.getState()).toMatchObject({ revision: 1, confirmed: false });
 
     repositoryMock.reconcile.mockResolvedValueOnce({ status: 'integrity-error' });

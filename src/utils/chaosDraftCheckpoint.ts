@@ -1,6 +1,6 @@
 import type { Pack } from '../state/inventoryStore';
 import type { Player } from '../state/sessionStore';
-import type { ActiveChaosDraft, DraftPackRef } from '../types';
+import type { ActiveChaosDraft, DraftPackRef, DraftPlayer, DraftTournament } from '../types';
 
 export interface ChaosDraftSessionView {
   players: Player[];
@@ -65,6 +65,143 @@ function isValidInventoryPack(value: unknown): value is Pack {
   );
 }
 
+function sameMembers(actual: Set<string>, expected: Set<string>): boolean {
+  return actual.size === expected.size && [...actual].every((id) => expected.has(id));
+}
+
+function validatePairingResult(value: unknown): void {
+  if (
+    !isRecord(value) ||
+    !Number.isInteger(value.player1Wins) || (value.player1Wins as number) < 0 ||
+    !Number.isInteger(value.player2Wins) || (value.player2Wins as number) < 0 ||
+    !Number.isInteger(value.ties) || (value.ties as number) < 0 ||
+    !['player1', 'player2', 'tie'].includes(value.matchWinner as string) ||
+    typeof value.isPartial !== 'boolean' ||
+    !isNonEmptyString(value.submittedBy) ||
+    !isTimestamp(value.submittedAt)
+  ) {
+    throw new Error('Tournament pairing result is invalid.');
+  }
+}
+
+export function validateTournamentForPlayers(
+  value: unknown,
+  players: DraftPlayer[],
+): asserts value is DraftTournament {
+  if (
+    !isRecord(value) ||
+    value.status !== 'active' ||
+    value.currentRound !== 1 ||
+    !Number.isInteger(value.totalRounds) ||
+    (value.totalRounds as number) <= 0 ||
+    !Array.isArray(value.rounds)
+  ) {
+    throw new Error('Tournament Round 1 is invalid.');
+  }
+
+  for (const round of value.rounds) {
+    if (
+      !isRecord(round) ||
+      !Number.isInteger(round.roundNumber) ||
+      (round.roundNumber as number) <= 0 ||
+      !['active', 'complete'].includes(round.status as string) ||
+      !Array.isArray(round.pairings)
+    ) {
+      throw new Error('Tournament round data is invalid.');
+    }
+    for (const pairing of round.pairings) {
+      if (
+        !isRecord(pairing) ||
+        !isNonEmptyString(pairing.id) ||
+        !isNonEmptyString(pairing.player1Id) ||
+        (pairing.player2Id !== null && !isNonEmptyString(pairing.player2Id)) ||
+        !['pending', 'complete'].includes(pairing.status as string)
+      ) {
+        throw new Error('Tournament pairing data is invalid.');
+      }
+      if (pairing.result !== undefined) validatePairingResult(pairing.result);
+    }
+  }
+
+  if (!Array.isArray(value.seats)) throw new Error('Tournament seats are invalid.');
+  for (const seat of value.seats) {
+    if (
+      !isRecord(seat) ||
+      !isNonEmptyString(seat.playerId) ||
+      !Number.isInteger(seat.seat) ||
+      (seat.seat as number) <= 0
+    ) {
+      throw new Error('Tournament seat data is invalid.');
+    }
+  }
+
+  const roundOne = value.rounds.find(
+    (round) => isRecord(round) && round.roundNumber === 1,
+  ) as Record<string, unknown> | undefined;
+  if (!roundOne || roundOne.status !== 'active') {
+    throw new Error('Tournament Round 1 is not active.');
+  }
+
+  const expectedPlayers = new Set(players.map((player) => player.id));
+  const pairedPlayers = new Set<string>();
+  let byePlayerId: string | null = null;
+  for (const pairingValue of roundOne.pairings as unknown[]) {
+    const pairing = pairingValue as Record<string, unknown>;
+    const player1Id = pairing.player1Id as string;
+    if (!expectedPlayers.has(player1Id) || pairedPlayers.has(player1Id)) {
+      throw new Error('Tournament players do not match checkpoint players.');
+    }
+    pairedPlayers.add(player1Id);
+
+    if (pairing.player2Id === null) {
+      if (byePlayerId !== null) {
+        throw new Error('Tournament players do not match checkpoint players.');
+      }
+      byePlayerId = player1Id;
+    } else {
+      const player2Id = pairing.player2Id as string;
+      if (!expectedPlayers.has(player2Id) || pairedPlayers.has(player2Id)) {
+        throw new Error('Tournament players do not match checkpoint players.');
+      }
+      pairedPlayers.add(player2Id);
+    }
+  }
+
+  const expectedByeCount = players.length % 2;
+  if (
+    !sameMembers(pairedPlayers, expectedPlayers) ||
+    (roundOne.pairings as unknown[]).length !== Math.ceil(players.length / 2) ||
+    Number(byePlayerId !== null) !== expectedByeCount
+  ) {
+    throw new Error('Tournament players do not match checkpoint players.');
+  }
+
+  const expectedSeatsWithoutBye = new Set(expectedPlayers);
+  if (byePlayerId) expectedSeatsWithoutBye.delete(byePlayerId);
+  const seatPlayers = new Set<string>();
+  const seatNumbers = new Set<number>();
+  for (const seatValue of value.seats) {
+    const seat = seatValue as Record<string, unknown>;
+    const playerId = seat.playerId as string;
+    const seatNumber = seat.seat as number;
+    if (
+      !expectedPlayers.has(playerId) ||
+      seatPlayers.has(playerId) ||
+      seatNumbers.has(seatNumber)
+    ) {
+      throw new Error('Tournament seats do not match checkpoint players.');
+    }
+    seatPlayers.add(playerId);
+    seatNumbers.add(seatNumber);
+  }
+  if (
+    !sameMembers(seatPlayers, expectedPlayers) &&
+    !sameMembers(seatPlayers, expectedSeatsWithoutBye)
+  ) {
+    throw new Error('Tournament seats do not match checkpoint players.');
+  }
+}
+
 export function countSelectedPacks(packs: DraftPackRef[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const pack of packs) counts.set(pack.id, (counts.get(pack.id) ?? 0) + 1);
@@ -103,6 +240,9 @@ export function validateCheckpointShape(checkpoint: ActiveChaosDraft, ownerId: s
   }
   if (checkpoint.packsSelectedOrder.length > checkpoint.numPacks) {
     throw new Error('Checkpoint selection exceeds numPacks.');
+  }
+  if (checkpoint.pendingTournament !== undefined) {
+    validateTournamentForPlayers(checkpoint.pendingTournament, checkpoint.players);
   }
   if (!isTimestamp(checkpoint.createdAt) || !isTimestamp(checkpoint.updatedAt)) {
     throw new Error('Checkpoint timestamp data is invalid.');

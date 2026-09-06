@@ -9,6 +9,7 @@ import type {
 } from '../../types';
 import {
   ChaosDraftConflictError,
+  ChaosDraftValidationError,
   createActiveChaosDraftRepository,
   createFirestoreAdapter,
   type CheckpointCommand,
@@ -318,6 +319,25 @@ describe('atomic finalization', () => {
     expect(adapter.snapshot()).toEqual(before);
   });
 
+  it('classifies malformed nested tournament data as validation and performs no writes', async () => {
+    const malformedTournament = {
+      ...tournamentFixture(),
+      rounds: [{ ...tournamentFixture().rounds[0], pairings: [null] }],
+    } as unknown as DraftTournament;
+    const adapter = fakeAdapter({
+      checkpoint: completeCheckpointFixture({ pendingTournament: malformedTournament }),
+      packs: [packFixture({ id: 'a' }), packFixture({ id: 'b' })],
+    });
+    const before = adapter.snapshot();
+    const repository = createActiveChaosDraftRepository(adapter, () => 'admin-1');
+
+    await expect(repository.finalize(commandFixture())).rejects.toBeInstanceOf(
+      ChaosDraftValidationError,
+    );
+    expect(adapter.writeOperations()).toEqual([]);
+    expect(adapter.snapshot()).toEqual(before);
+  });
+
   it.each([
     'create:drafts/draft-1', 'update:packs/a', 'update:packs/b', 'delete:activeChaosDrafts/admin-1', 'commit',
   ])('rolls back all documents when %s fails', async (failure) => {
@@ -349,7 +369,7 @@ describe('authoritative finalization reconciliation', () => {
     });
     const repository = createActiveChaosDraftRepository(adapter, () => 'admin-1');
 
-    await expect(repository.reconcile('admin-1', 'draft-1')).resolves.toEqual(expected);
+    await expect(repository.reconcile('admin-1', 'session-1', 'draft-1')).resolves.toEqual(expected);
     expect(adapter.runTransaction).toHaveBeenCalledTimes(1);
     expect(adapter.operationNames()).toEqual(['read:drafts/draft-1', 'read:activeChaosDrafts/admin-1']);
     expect(adapter.get).not.toHaveBeenCalled();
@@ -363,7 +383,27 @@ describe('authoritative finalization reconciliation', () => {
     const adapter = fakeAdapter({ draft: finalizedDraftFixture(overrides) });
     const repository = createActiveChaosDraftRepository(adapter, () => 'admin-1');
 
-    await expect(repository.reconcile('admin-1', 'draft-1')).resolves.toEqual({ status: 'integrity-error' });
+    await expect(repository.reconcile('admin-1', 'session-1', 'draft-1')).resolves.toEqual({ status: 'integrity-error' });
+    expect(adapter.writeOperations()).toEqual([]);
+  });
+
+  it('treats a finalized draft from a different session as an integrity error', async () => {
+    const adapter = fakeAdapter({ draft: finalizedDraftFixture({ sessionId: 'other-session' }) });
+    const repository = createActiveChaosDraftRepository(adapter, () => 'admin-1');
+
+    await expect(repository.reconcile('admin-1', 'session-1', 'draft-1')).resolves.toEqual({
+      status: 'integrity-error',
+    });
+    expect(adapter.writeOperations()).toEqual([]);
+  });
+
+  it('does not offer retry for a checkpoint that belongs to a different session', async () => {
+    const adapter = fakeAdapter({ checkpoint: completeCheckpointFixture({ sessionId: 'other-session' }) });
+    const repository = createActiveChaosDraftRepository(adapter, () => 'admin-1');
+
+    await expect(repository.reconcile('admin-1', 'session-1', 'draft-1')).resolves.toEqual({
+      status: 'integrity-error',
+    });
     expect(adapter.writeOperations()).toEqual([]);
   });
 
@@ -371,7 +411,7 @@ describe('authoritative finalization reconciliation', () => {
     const adapter = fakeAdapter({ checkpoint: completeCheckpointFixture({ finalDraftId: 'replacement-draft' }) });
     const repository = createActiveChaosDraftRepository(adapter, () => 'admin-1');
 
-    await expect(repository.reconcile('admin-1', 'draft-1')).resolves.toEqual({ status: 'integrity-error' });
+    await expect(repository.reconcile('admin-1', 'session-1', 'draft-1')).resolves.toEqual({ status: 'integrity-error' });
     expect(adapter.writeOperations()).toEqual([]);
   });
 
@@ -380,7 +420,7 @@ describe('authoritative finalization reconciliation', () => {
     const adapter = fakeAdapter({ transactionError: failure });
     const repository = createActiveChaosDraftRepository(adapter, () => 'admin-1');
 
-    await expect(repository.reconcile('admin-1', 'draft-1')).rejects.toBe(failure);
+    await expect(repository.reconcile('admin-1', 'session-1', 'draft-1')).rejects.toBe(failure);
     expect(adapter.writeOperations()).toEqual([]);
   });
 
@@ -389,7 +429,7 @@ describe('authoritative finalization reconciliation', () => {
     adapter.get.mockResolvedValue(completeCheckpointFixture());
     const repository = createActiveChaosDraftRepository(adapter, () => 'admin-1');
 
-    await expect(repository.reconcile('admin-1', 'draft-1')).resolves.toEqual({
+    await expect(repository.reconcile('admin-1', 'session-1', 'draft-1')).resolves.toEqual({
       status: 'committed', draftId: 'draft-1',
     });
     expect(adapter.get).not.toHaveBeenCalled();
@@ -414,7 +454,7 @@ describe('production Firestore transaction authority', () => {
     );
     const repository = createActiveChaosDraftRepository(createFirestoreAdapter(firestore), () => 'admin-1');
 
-    await expect(repository.reconcile('admin-1', 'draft-1')).rejects.toThrow(/authoritative|server/i);
+    await expect(repository.reconcile('admin-1', 'session-1', 'draft-1')).rejects.toThrow(/authoritative|server/i);
     expect(nativeTransaction.set).not.toHaveBeenCalled();
     expect(nativeTransaction.update).not.toHaveBeenCalled();
     expect(nativeTransaction.delete).not.toHaveBeenCalled();
@@ -438,7 +478,7 @@ describe('production Firestore transaction authority', () => {
     );
     const repository = createActiveChaosDraftRepository(createFirestoreAdapter(firestore), () => 'admin-1');
 
-    await expect(repository.reconcile('admin-1', 'draft-1')).resolves.toEqual({
+    await expect(repository.reconcile('admin-1', 'session-1', 'draft-1')).resolves.toEqual({
       status: 'committed', draftId: 'draft-1',
     });
     expect(paths).toEqual(['drafts/draft-1', 'activeChaosDrafts/admin-1']);
@@ -588,11 +628,12 @@ describe('activeChaosDraftRepository', () => {
     ).rejects.toThrow(/complete|capacity/i);
   });
 
-  it('undo removes only the final pick and increments revision', async () => {
+  it('undo removes only the final pick and leaves a valid tournament reconstructable', async () => {
     const repository = createActiveChaosDraftRepository(
       fakeAdapter({
         checkpoint: checkpointFixture({
-          packsSelectedOrder: [packRefFixture()],
+          packsSelectedOrder: [packRefFixture(), packRefFixture()],
+          pendingTournament: tournamentFixture(),
           revision: 1,
         }),
       }),
@@ -601,7 +642,13 @@ describe('activeChaosDraftRepository', () => {
 
     await expect(repository.undo(commandFixture({ expectedRevision: 1 }))).resolves.toMatchObject({
       revision: 2,
-      packsSelectedOrder: [],
+      packsSelectedOrder: [packRefFixture()],
+      pendingTournament: tournamentFixture(),
+    });
+    await expect(repository.get('admin-1')).resolves.toMatchObject({
+      revision: 2,
+      packsSelectedOrder: [packRefFixture()],
+      pendingTournament: tournamentFixture(),
     });
   });
 
@@ -715,7 +762,7 @@ describe('activeChaosDraftRepository', () => {
     );
     await expect(repository.discard(commandFixture())).rejects.toThrow(/owner|authorized/i);
     await expect(repository.finalize(commandFixture())).rejects.toThrow(/owner|authorized/i);
-    await expect(repository.reconcile('admin-1', 'draft-1')).rejects.toThrow(/owner|authorized/i);
+    await expect(repository.reconcile('admin-1', 'session-1', 'draft-1')).rejects.toThrow(/owner|authorized/i);
     expect(adapter.get).not.toHaveBeenCalled();
     expect(adapter.runTransaction).not.toHaveBeenCalled();
   });
