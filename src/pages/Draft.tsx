@@ -1,10 +1,22 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { auth } from '../firebase';
 import { useSessionStore } from "../state/sessionStore";
 import { useInventoryStore, type Pack } from "../state/inventoryStore";
 import { useDraftHistoryStore } from "../state/draftHistoryStore";
+import { useUserStore } from '../state/userStore';
+import {
+  activeChaosDraftRepository,
+  ChaosDraftConflictError,
+  ChaosDraftValidationError,
+} from '../repositories/activeChaosDraftRepository';
 import RoundMatchups from "../components/RoundMatchups";
 import { generateRound1Pairings, playersToSeats } from "../utils/tournamentPairings";
+import {
+  createSpinCheckpointCoordinator,
+  type SpinCheckpointState,
+} from '../utils/spinCheckpointCoordinator';
+import { shouldDiscoverChaosCheckpoint } from '../utils/chaosDraftAccess';
 import type { DraftTournament } from "../types";
 
 import tickSoundFile from "../assets/tick.mp3";
@@ -140,7 +152,9 @@ const findTargetIndex = ({
 
 export default function Draft() {
   const {
+    ownerId,
     sessionId,
+    finalDraftId,
     players,
     packsSelectedOrder,
     tempInventory,
@@ -153,12 +167,28 @@ export default function Draft() {
     undoLastPick,
     pendingTournament,
     setPendingTournament,
+    mutationPending,
+    hydrateSession,
+    reconcileConfirmation,
+    clearLocalSession,
   } = useSessionStore();
 
   const navigate = useNavigate();
   const { loadDrafts } = useDraftHistoryStore();
 
   const { loading: inventoryLoading } = useInventoryStore();
+  const profile = useUserStore((state) => state.profile);
+  const authUid = auth.currentUser?.uid ?? null;
+  const profileUid = profile?.uid ?? null;
+  const profileRole = profile?.role ?? null;
+  const profileStatus = profile?.status ?? null;
+  const approvedOwnerId =
+    authUid &&
+    profileUid === authUid &&
+    profileRole === 'admin' &&
+    profileStatus === 'approved'
+      ? authUid
+      : null;
 
   const packWidth = 176; // Match selector width (w-44 = 176px)
   const packGap = 8;
@@ -194,6 +224,15 @@ export default function Draft() {
   const [visibleWidth, setVisibleWidth] = useState(800);
   const [isConfirming, setIsConfirming] = useState(false);
   const [noPacksAlert, setNoPacksAlert] = useState(false);
+  const [hydrationState, setHydrationState] = useState<'loading' | 'ready' | 'blocked'>('loading');
+  const [hydrationError, setHydrationError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmationUnknown, setConfirmationUnknown] = useState(false);
+  const [integrityError, setIntegrityError] = useState<string | null>(null);
+  const [showDelayedSaving, setShowDelayedSaving] = useState(false);
+  const [spinCheckpointState, setSpinCheckpointState] =
+    useState<SpinCheckpointState<Pack> | null>(null);
+  const [observerError, setObserverError] = useState<string | null>(null);
 
   const offsetRef = useRef(0);
   const requestRef = useRef<number | null>(null);
@@ -204,6 +243,15 @@ export default function Draft() {
   const selectedPackRef = useRef<Pack | null>(null);
   const finalRandomOffset = useRef(0);
   const spinnerWrapperRef = useRef<HTMLDivElement>(null);
+  const spinCheckpointRef = useRef<ReturnType<typeof createSpinCheckpointCoordinator<Pack>> | null>(null);
+  const unsubscribeSpinRef = useRef<(() => void) | null>(null);
+  const savingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const finishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lifecycleGenerationRef = useRef(0);
+  const lifecycleIdentityRef = useRef<string | null>(null);
+  const hydrationRequestOwnerRef = useRef<string | null>(null);
+  const inventoryReadyOwnerRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
 
   /** --- Sound Settings --- */
   const TICK_INTERVAL_MIN = 70;
@@ -211,6 +259,230 @@ export default function Draft() {
   const selectedSound = useRef<HTMLAudioElement | null>(null);
   const tickSound = useRef<HTMLAudioElement | null>(null);
   const lastTickPosition = useRef(0);
+
+  const cancelPendingVisuals = (updateState = true) => {
+    const abandonedCoordinator = spinCheckpointRef.current;
+    const abandonedSession = useSessionStore.getState();
+    if (requestRef.current !== null) cancelAnimationFrame(requestRef.current);
+    requestRef.current = null;
+    if (finishTimerRef.current !== null) clearTimeout(finishTimerRef.current);
+    finishTimerRef.current = null;
+    if (savingTimerRef.current !== null) clearTimeout(savingTimerRef.current);
+    savingTimerRef.current = null;
+    unsubscribeSpinRef.current?.();
+    unsubscribeSpinRef.current = null;
+    spinCheckpointRef.current = null;
+    selectedPackRef.current = null;
+    if (abandonedCoordinator) {
+      void abandonedCoordinator.settled.then(async () => {
+        const checkpointState = abandonedCoordinator.getState();
+        if (checkpointState.revision === undefined) return;
+
+        const current = useSessionStore.getState();
+        if (
+          current.sessionId !== abandonedSession.sessionId ||
+          current.ownerId !== abandonedSession.ownerId
+        ) return;
+        if (
+          auth.currentUser?.uid !== abandonedSession.ownerId ||
+          !shouldDiscoverChaosCheckpoint(useUserStore.getState().profile)
+        ) {
+          current.clearLocalSession();
+          return;
+        }
+
+        try {
+          current.applyCheckpointedPack(checkpointState.pack, checkpointState.revision);
+        } catch {
+          const checkpoint = await activeChaosDraftRepository.get(abandonedSession.ownerId);
+          if (
+            checkpoint &&
+            auth.currentUser?.uid === abandonedSession.ownerId &&
+            useSessionStore.getState().sessionId === abandonedSession.sessionId
+          ) {
+            useSessionStore.getState().hydrateSession(checkpoint);
+          }
+        }
+      }).catch(() => undefined);
+    }
+    if (updateState && mountedRef.current) {
+      setSpinning(false);
+      setIsConfirming(false);
+      setJustFinished(false);
+      setShowPopup(false);
+      setSelectedForDisplay(null);
+      setSpinCheckpointState(null);
+      setShowDelayedSaving(false);
+    }
+  };
+
+  const recoverLatestCheckpoint = async (error: unknown) => {
+    const recoveryOwnerId = auth.currentUser?.uid;
+    const recoveryGeneration = ++lifecycleGenerationRef.current;
+    cancelPendingVisuals();
+    setActionError(null);
+    setConfirmationUnknown(false);
+    setIntegrityError(null);
+    setHydrationError(null);
+    setHydrationState('loading');
+
+    if (!recoveryOwnerId || !shouldDiscoverChaosCheckpoint(useUserStore.getState().profile)) {
+      setHydrationError('An approved admin account is required to recover this draft.');
+      setHydrationState('blocked');
+      return;
+    }
+
+    try {
+      const checkpoint = await activeChaosDraftRepository.get(recoveryOwnerId);
+      if (
+        !mountedRef.current ||
+        lifecycleGenerationRef.current !== recoveryGeneration ||
+        auth.currentUser?.uid !== recoveryOwnerId ||
+        useUserStore.getState().profile?.uid !== recoveryOwnerId
+      ) return;
+
+      if (!checkpoint) {
+        setHydrationError('The active draft could not be found. Its status must be checked before continuing.');
+        setHydrationState('blocked');
+        return;
+      }
+      hydrateSession(checkpoint);
+      setActionError('This draft was updated on another device. The latest saved state has been loaded.');
+      setHydrationState('ready');
+    } catch (recoveryError) {
+      if (!mountedRef.current || lifecycleGenerationRef.current !== recoveryGeneration) return;
+      const message = recoveryError instanceof Error
+        ? recoveryError.message
+        : 'The latest saved draft could not be loaded.';
+      setHydrationError(`The latest saved draft could not be loaded: ${message}`);
+      setHydrationState('blocked');
+    }
+
+    if (!(error instanceof ChaosDraftConflictError)) {
+      setObserverError(error instanceof Error ? error.message : 'The saved pack could not be applied locally.');
+    }
+  };
+
+  const handleMutationError = (error: unknown, fallback: string) => {
+    if (error instanceof ChaosDraftConflictError) {
+      void recoverLatestCheckpoint(error);
+      return;
+    }
+    setActionError(error instanceof Error ? error.message : fallback);
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      lifecycleGenerationRef.current += 1;
+      cancelPendingVisuals(false);
+    };
+  }, []);
+
+  useEffect(() => {
+    const identity = `${authUid ?? ''}:${profileUid ?? ''}:${profileRole ?? ''}:${profileStatus ?? ''}:${ownerId}:${sessionId}`;
+    if (lifecycleIdentityRef.current === identity) return;
+
+    if (lifecycleIdentityRef.current !== null) {
+      lifecycleGenerationRef.current += 1;
+      cancelPendingVisuals();
+    }
+    lifecycleIdentityRef.current = identity;
+    hydrationRequestOwnerRef.current = null;
+    if (inventoryReadyOwnerRef.current !== approvedOwnerId) {
+      inventoryReadyOwnerRef.current = null;
+    }
+    setConfirmationUnknown(false);
+    setIntegrityError(null);
+
+    if (!profileUid) {
+      setHydrationState('loading');
+    } else if (!approvedOwnerId) {
+      setHydrationError('Chaos Draft is available only to an approved admin.');
+      setHydrationState('blocked');
+    } else if (
+      sessionId &&
+      ownerId === approvedOwnerId &&
+      inventoryReadyOwnerRef.current === approvedOwnerId
+    ) {
+      setHydrationError(null);
+      setHydrationState('ready');
+    } else {
+      setHydrationError(null);
+      setHydrationState('loading');
+    }
+  }, [authUid, profileUid, profileRole, profileStatus, approvedOwnerId, ownerId, sessionId]);
+
+  useEffect(() => {
+    if (!approvedOwnerId) return;
+    if (inventoryReadyOwnerRef.current !== approvedOwnerId) {
+      if (inventoryLoading) {
+        setHydrationState('loading');
+        return;
+      }
+      inventoryReadyOwnerRef.current = approvedOwnerId;
+    }
+    if (sessionId && ownerId === approvedOwnerId) {
+      setHydrationError(null);
+      setHydrationState('ready');
+      return;
+    }
+    if (hydrationRequestOwnerRef.current === approvedOwnerId) return;
+
+    hydrationRequestOwnerRef.current = approvedOwnerId;
+    const generation = lifecycleGenerationRef.current;
+    setHydrationError(null);
+    setHydrationState('loading');
+    void activeChaosDraftRepository.get(approvedOwnerId).then((checkpoint) => {
+      if (
+        !mountedRef.current ||
+        lifecycleGenerationRef.current !== generation ||
+        auth.currentUser?.uid !== approvedOwnerId ||
+        useUserStore.getState().profile?.uid !== approvedOwnerId
+      ) return;
+      if (!checkpoint) {
+        setHydrationError('No unfinished Chaos Draft was found. Start one from the Draft page.');
+        setHydrationState('blocked');
+        return;
+      }
+      try {
+        hydrateSession(checkpoint);
+        setHydrationState('ready');
+      } catch (error) {
+        setHydrationError(
+          error instanceof Error
+            ? `The saved draft could not be restored: ${error.message}`
+            : 'The saved draft could not be restored.',
+        );
+        setHydrationState('blocked');
+      }
+    }).catch((error) => {
+      if (!mountedRef.current || lifecycleGenerationRef.current !== generation) return;
+      setHydrationError(
+        error instanceof Error
+          ? `The saved draft could not be loaded: ${error.message}`
+          : 'The saved draft could not be loaded.',
+      );
+      setHydrationState('blocked');
+    });
+  }, [approvedOwnerId, inventoryLoading, sessionId, ownerId, hydrateSession]);
+
+  useEffect(() => {
+    if (savingTimerRef.current !== null) clearTimeout(savingTimerRef.current);
+    savingTimerRef.current = null;
+    setShowDelayedSaving(false);
+    if (spinCheckpointState?.phase !== 'waiting-for-save') return;
+
+    savingTimerRef.current = setTimeout(() => {
+      savingTimerRef.current = null;
+      setShowDelayedSaving(true);
+    }, 1000);
+    return () => {
+      if (savingTimerRef.current !== null) clearTimeout(savingTimerRef.current);
+      savingTimerRef.current = null;
+    };
+  }, [spinCheckpointState?.phase]);
 
   useEffect(() => {
     selectedSound.current = new Audio(selectedSoundFile);
@@ -375,18 +647,15 @@ export default function Draft() {
         tickSound.current.pause();
         tickSound.current.currentTime = 0;
       }
-      setTimeout(() => {
+      finishTimerRef.current = setTimeout(() => {
+        finishTimerRef.current = null;
         setJustFinished(false);
-        if (selectedPackRef.current) {
-          const selectedPack = selectedPackRef.current;
-          void checkpointSelectedPack(selectedPack).then((committedRevision) => {
-            applyCheckpointedPack(selectedPack, committedRevision);
-            setSelectedForDisplay(selectedPack);
-            setShowPopup(true);
-            selectedPackRef.current = null;
-          });
-        }
       }, 100);
+      try {
+        spinCheckpointRef.current?.markAnimationComplete();
+      } catch (error) {
+        setObserverError(error instanceof Error ? error.message : 'The spin status could not be displayed.');
+      }
     }
   };
 
@@ -396,7 +665,7 @@ export default function Draft() {
    */
   const handleSpin = () => {
     // 1. Guard Clauses: Check if we can spin
-    if (spinning || confirmed) return;
+    if (!canSpin) return;
     const selectedPack = pickWeightedRandomPack(availablePacks);
     if (!selectedPack) {
       setNoPacksAlert(true);
@@ -408,6 +677,37 @@ export default function Draft() {
     setSelectedForDisplay(null);
     selectedPackRef.current = selectedPack;
     setSpinning(true);
+    setActionError(null);
+    setObserverError(null);
+
+    const spinGeneration = lifecycleGenerationRef.current;
+    const coordinator = createSpinCheckpointCoordinator(selectedPack, checkpointSelectedPack);
+    spinCheckpointRef.current = coordinator;
+    setSpinCheckpointState(coordinator.getState());
+    unsubscribeSpinRef.current = coordinator.subscribe((state) => {
+      if (!mountedRef.current || lifecycleGenerationRef.current !== spinGeneration) return;
+      setSpinCheckpointState(state);
+
+      if (state.phase === 'failed' && state.error instanceof ChaosDraftConflictError) {
+        void recoverLatestCheckpoint(state.error);
+        return;
+      }
+      if (state.phase !== 'ready' || state.revision === undefined) return;
+
+      try {
+        applyCheckpointedPack(state.pack, state.revision);
+        const canonicalPack = useSessionStore.getState().packsSelectedOrder.at(-1) ?? state.pack;
+        setSelectedForDisplay(canonicalPack);
+        setShowPopup(true);
+        selectedPackRef.current = null;
+        unsubscribeSpinRef.current?.();
+        unsubscribeSpinRef.current = null;
+        spinCheckpointRef.current = null;
+      } catch (error) {
+        setObserverError(error instanceof Error ? error.message : 'The saved pack could not be applied locally.');
+        void recoverLatestCheckpoint(error);
+      }
+    });
 
     // 3. Buffer Trimming: Clean up the buffer before adding to it
     const { trimmedBuffer, offsetAdjustment } = trimBuffer({
@@ -463,18 +763,35 @@ export default function Draft() {
   };
 
   const handleConfirm = async () => {
+    if (!pendingTournament || packsSelectedOrder.length !== numPacks || mutationLocked) return;
+    const operationGeneration = lifecycleGenerationRef.current;
+    const operationOwner = ownerId;
+    setActionError(null);
     setIsConfirming(true);
     try {
-      const hadTournament = !!useSessionStore.getState().pendingTournament;
       await confirmSession();
-      if (hadTournament) {
-        await loadDrafts();
-        navigate('/tournament');
-      }
+      await loadDrafts();
+      if (
+        !mountedRef.current ||
+        lifecycleGenerationRef.current !== operationGeneration ||
+        auth.currentUser?.uid !== operationOwner
+      ) return;
+      clearLocalSession();
+      navigate('/tournament');
     } catch (error) {
-      console.error("Error saving draft:", error);
+      if (!mountedRef.current || lifecycleGenerationRef.current !== operationGeneration) return;
+      if (error instanceof ChaosDraftConflictError) {
+        void recoverLatestCheckpoint(error);
+      } else if (error instanceof ChaosDraftValidationError) {
+        setActionError(error.message);
+      } else {
+        setConfirmationUnknown(true);
+        setActionError('Confirmation status is unknown. Check the saved draft before trying again.');
+      }
     } finally {
-      setIsConfirming(false);
+      if (mountedRef.current && lifecycleGenerationRef.current === operationGeneration) {
+        setIsConfirming(false);
+      }
     }
   };
 
@@ -486,8 +803,92 @@ export default function Draft() {
       totalRounds: 3,
       status: 'active',
     };
-    await setPendingTournament(tournament);
-    await handleConfirm();
+    const operationGeneration = lifecycleGenerationRef.current;
+    setActionError(null);
+    setIsConfirming(true);
+    try {
+      await setPendingTournament(tournament);
+      if (!mountedRef.current || lifecycleGenerationRef.current !== operationGeneration) return;
+      setShowMatchupsModal(false);
+    } catch (error) {
+      if (!mountedRef.current || lifecycleGenerationRef.current !== operationGeneration) return;
+      handleMutationError(error, 'Failed to save Round 1.');
+    } finally {
+      if (mountedRef.current && lifecycleGenerationRef.current === operationGeneration) {
+        setIsConfirming(false);
+      }
+    }
+  };
+
+  const handleUndo = async () => {
+    setActionError(null);
+    try {
+      await undoLastPick();
+    } catch (error) {
+      handleMutationError(error, 'Failed to undo the last pick.');
+    }
+  };
+
+  const handleDiscard = async () => {
+    if (!window.confirm('Discard this unfinished Chaos Draft? This cannot be undone.')) return;
+    const operationGeneration = lifecycleGenerationRef.current;
+    setActionError(null);
+    try {
+      await discardSession();
+      if (!mountedRef.current || lifecycleGenerationRef.current !== operationGeneration) return;
+      navigate('/drafts');
+    } catch (error) {
+      if (!mountedRef.current || lifecycleGenerationRef.current !== operationGeneration) return;
+      handleMutationError(error, 'Failed to discard this draft.');
+    }
+  };
+
+  const handleRetrySave = async () => {
+    setObserverError(null);
+    setActionError(null);
+    try {
+      await spinCheckpointRef.current?.retry();
+    } catch (error) {
+      setObserverError(error instanceof Error ? error.message : 'The save retry could not be observed.');
+    }
+  };
+
+  const handleCheckAgain = async () => {
+    const identifiers = { ownerId, sessionId, finalDraftId };
+    const operationGeneration = lifecycleGenerationRef.current;
+    setActionError(null);
+    setIsConfirming(true);
+    try {
+      const result = await reconcileConfirmation();
+      if (!mountedRef.current || lifecycleGenerationRef.current !== operationGeneration) return;
+
+      if (result.status === 'committed') {
+        await loadDrafts();
+        if (!mountedRef.current || lifecycleGenerationRef.current !== operationGeneration) return;
+        clearLocalSession();
+        navigate('/tournament');
+      } else if (result.status === 'not-committed') {
+        setConfirmationUnknown(false);
+        setActionError('Confirmation did not complete. The latest saved draft is ready to try again.');
+      } else {
+        setConfirmationUnknown(false);
+        setIntegrityError(
+          `Draft integrity check failed. Owner: ${identifiers.ownerId}; session: ${identifiers.sessionId}; final draft: ${identifiers.finalDraftId}.`,
+        );
+      }
+    } catch (error) {
+      if (!mountedRef.current || lifecycleGenerationRef.current !== operationGeneration) return;
+      setConfirmationUnknown(true);
+      setActionError(
+        error instanceof Error
+          ? `Confirmation status is still unknown: ${error.message}`
+          : 'Confirmation status is still unknown.',
+      );
+    } finally {
+      if (mountedRef.current && lifecycleGenerationRef.current === operationGeneration) {
+        setIsConfirming(false);
+      }
+    }
   };
 
   const isDraftComplete = packsSelectedOrder.length === numPacks;
@@ -498,8 +899,20 @@ export default function Draft() {
     nextPlayerName = players[nextPlayerIndex]?.name || "";
   }
 
-  const canSpin = !spinning && availablePacks.length > 0 && !confirmed;
-  const canUndo = packsSelectedOrder.length > 0 && !spinning && !confirmed;
+  const spinWritePending = spinCheckpointState !== null && (
+    spinCheckpointState.phase === 'animating' ||
+    spinCheckpointState.phase === 'waiting-for-save' ||
+    spinCheckpointState.phase === 'failed'
+  );
+  const mutationLocked =
+    hydrationState !== 'ready' ||
+    mutationPending ||
+    spinWritePending ||
+    isConfirming ||
+    confirmationUnknown ||
+    integrityError !== null;
+  const canSpin = !spinning && !mutationLocked && availablePacks.length > 0 && !confirmed;
+  const canUndo = packsSelectedOrder.length > 0 && !spinning && !mutationLocked && !confirmed;
 
   const spinButtonText = () => {
     if (spinning) return "Spinning...";
@@ -509,9 +922,76 @@ export default function Draft() {
     return "Spin for Next Player";
   };
 
+  if (hydrationState === 'loading') {
+    return (
+      <div className="max-w-2xl mx-auto py-20 text-center">
+        <p className="text-xl font-semibold text-gray-300">Loading saved Chaos Draft…</p>
+        <p className="mt-2 text-gray-500">Waiting for your account and live inventory.</p>
+      </div>
+    );
+  }
+
+  if (hydrationState === 'blocked') {
+    return (
+      <div className="max-w-2xl mx-auto py-16 text-center space-y-4">
+        <h2 className="text-2xl font-bold text-white">Chaos Draft unavailable</h2>
+        <p className="text-gray-300">{hydrationError}</p>
+        <p className="text-sm text-gray-500">Any saved checkpoint has been left intact for recovery.</p>
+        <Link
+          to="/drafts"
+          className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-semibold"
+        >
+          Back to Drafts
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-6xl mx-auto space-y-8">
       <h2 className="text-3xl font-bold text-white">🎡 Chaos Draft</h2>
+
+      {actionError && (
+        <div role="alert" className="rounded-lg border border-yellow-700 bg-yellow-950/40 px-4 py-3 text-yellow-200">
+          {actionError}
+        </div>
+      )}
+      {observerError && (
+        <div role="alert" className="rounded-lg border border-orange-700 bg-orange-950/40 px-4 py-3 text-orange-200">
+          The saved spin could not be applied to this page: {observerError}
+        </div>
+      )}
+      {integrityError && (
+        <div role="alert" className="rounded-lg border border-red-700 bg-red-950/40 px-4 py-3 text-red-200">
+          {integrityError} Contact support with these identifiers.
+        </div>
+      )}
+      {confirmationUnknown && (
+        <div className="rounded-lg border border-yellow-700 bg-yellow-950/40 px-4 py-3 text-yellow-100 flex items-center justify-between gap-4">
+          <span>Confirmation status is unknown. All draft changes are locked.</span>
+          <button
+            onClick={handleCheckAgain}
+            disabled={isConfirming || mutationPending}
+            className="shrink-0 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold"
+          >
+            {isConfirming ? 'Checking…' : 'Check Again'}
+          </button>
+        </div>
+      )}
+      {spinCheckpointState?.phase === 'failed' && (
+        <div role="alert" className="rounded-lg border border-red-700 bg-red-950/40 px-4 py-3 text-red-100 flex items-center justify-between gap-4">
+          <span>Could not save this pack</span>
+          <button
+            onClick={handleRetrySave}
+            className="shrink-0 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold"
+          >
+            Retry Save
+          </button>
+        </div>
+      )}
+      {showDelayedSaving && spinCheckpointState?.phase === 'waiting-for-save' && (
+        <p className="text-sm text-gray-400 text-center">Saving selected pack…</p>
+      )}
 
       {/* --- Spinner --- */}
       <div className="relative flex items-center justify-center h-72">
@@ -829,15 +1309,15 @@ export default function Draft() {
       {/* --- Session Management Buttons --- */}
       <div className="mt-8 flex justify-center gap-4 flex-wrap">
         <button
-          onClick={discardSession}
-          disabled={isConfirming}
+          onClick={handleDiscard}
+          disabled={mutationLocked}
           className="bg-red-700 hover:bg-red-800 text-white px-5 py-3 rounded-lg font-semibold disabled:bg-gray-600"
         >
-          Reset Session
+          Discard Draft
         </button>
 
         <button
-          onClick={undoLastPick}
+          onClick={handleUndo}
           disabled={!canUndo}
           className="bg-yellow-600 hover:bg-yellow-700 text-white px-5 py-3 rounded-lg font-semibold disabled:bg-gray-600 disabled:cursor-not-allowed"
         >
@@ -851,14 +1331,15 @@ export default function Draft() {
         ) : isDraftComplete && pendingTournament === null && players.length > 0 ? (
           <button
             onClick={() => setShowMatchupsModal(true)}
-            className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-lg font-semibold transition-all"
+            disabled={mutationLocked}
+            className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-lg font-semibold transition-all disabled:bg-gray-600 disabled:cursor-not-allowed"
           >
             Set Up Round 1 →
           </button>
         ) : (
           <button
             onClick={handleConfirm}
-            disabled={!isDraftComplete || isConfirming || spinning}
+            disabled={!isDraftComplete || pendingTournament === null || mutationLocked}
             className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-semibold transition-all disabled:bg-gray-600 disabled:cursor-not-allowed"
           >
             {isConfirming
@@ -875,7 +1356,7 @@ export default function Draft() {
               players={players}
               pairings={round1Pairings}
               onStart={handleStartRound1}
-              disabled={isConfirming}
+              disabled={mutationLocked}
             />
           </div>
         </div>

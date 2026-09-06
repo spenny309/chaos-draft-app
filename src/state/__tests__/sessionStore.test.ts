@@ -287,6 +287,50 @@ describe('durable chaos session store', () => {
     });
   });
 
+  it('does not expose a tournament when persistence fails', async () => {
+    hydrateFixture();
+    repositoryMock.saveTournament.mockRejectedValue(new Error('offline'));
+
+    await expect(
+      useSessionStore.getState().setPendingTournament(tournamentFixture()),
+    ).rejects.toThrow('offline');
+
+    expect(useSessionStore.getState()).toMatchObject({
+      sessionId: 'session-1',
+      revision: 0,
+      pendingTournament: null,
+      mutationPending: false,
+    });
+  });
+
+  it('replaces stale local progress when a conflict checkpoint is hydrated', () => {
+    hydrateFixture({
+      revision: 1,
+      packsSelectedOrder: [{ id: 'pack-1', name: 'Pack One', imageUrl: 'one.jpg' }],
+    });
+
+    useSessionStore.getState().hydrateSession(checkpointFixture({
+      revision: 2,
+      packsSelectedOrder: [
+        { id: 'pack-2', name: 'Pack Two', imageUrl: 'two.jpg' },
+        { id: 'pack-1', name: 'Canonical Pack', imageUrl: 'canonical.jpg' },
+      ],
+      pendingTournament: tournamentFixture(),
+    }));
+
+    expect(useSessionStore.getState()).toMatchObject({
+      revision: 2,
+      pendingTournament: tournamentFixture(),
+      mutationPending: false,
+    });
+    expect(useSessionStore.getState().packsSelectedOrder.map((pack) => pack.id)).toEqual([
+      'pack-2',
+      'pack-1',
+    ]);
+    expect(useSessionStore.getState().players[0].selectedPacks[0].id).toBe('pack-2');
+    expect(useSessionStore.getState().players[1].selectedPacks[0].id).toBe('pack-1');
+  });
+
   it('keeps local state when tournament persistence or discard fails', async () => {
     hydrateFixture();
     repositoryMock.saveTournament.mockRejectedValue(new Error('offline tournament'));
@@ -395,5 +439,20 @@ describe('durable chaos session store', () => {
     repositoryMock.reconcile.mockResolvedValueOnce({ status: 'committed', draftId: 'draft-1' });
     await useSessionStore.getState().reconcileConfirmation();
     expect(useSessionStore.getState()).toMatchObject({ sessionId: 'session-1', confirmed: true });
+  });
+
+  it('returns unknown reconciliation failures without clearing local state', async () => {
+    hydrateFixture();
+    repositoryMock.reconcile.mockRejectedValue(new Error('offline'));
+
+    await expect(useSessionStore.getState().reconcileConfirmation()).rejects.toThrow('offline');
+
+    expect(useSessionStore.getState()).toMatchObject({
+      sessionId: 'session-1',
+      finalDraftId: 'draft-1',
+      revision: 0,
+      confirmed: false,
+      mutationPending: false,
+    });
   });
 });
