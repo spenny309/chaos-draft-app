@@ -91,6 +91,62 @@ service cloud.firestore {
         );
     }
 
+    function validChaosCheckpointCreate(ownerId) {
+      return request.resource.data.keys().hasAll([
+          'ownerId', 'sessionId', 'finalDraftId', 'revision', 'players',
+          'numPacks', 'packsSelectedOrder', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'ownerId', 'sessionId', 'finalDraftId', 'revision', 'players',
+          'numPacks', 'packsSelectedOrder', 'pendingTournament', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.ownerId == ownerId
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.sessionId is string
+        && request.resource.data.finalDraftId is string
+        && request.resource.data.revision == 0
+        && request.resource.data.players is list
+        && request.resource.data.players.size() >= 2
+        && request.resource.data.numPacks is int
+        && request.resource.data.numPacks > 0
+        && request.resource.data.packsSelectedOrder is list
+        && request.resource.data.packsSelectedOrder.size() == 0
+        && (!request.resource.data.keys().hasAny(['pendingTournament'])
+          || request.resource.data.pendingTournament is map)
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
+    }
+
+    function validChaosCheckpointUpdate() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return !changed.hasAny([
+          'ownerId', 'sessionId', 'finalDraftId', 'players', 'numPacks', 'createdAt'
+        ])
+        && changed.hasOnly(['packsSelectedOrder', 'pendingTournament', 'revision', 'updatedAt'])
+        && request.resource.data.revision == resource.data.revision + 1
+        && request.resource.data.packsSelectedOrder is list
+        && request.resource.data.packsSelectedOrder.size() >= 0
+        && request.resource.data.packsSelectedOrder.size() <= resource.data.numPacks
+        && request.resource.data.updatedAt is timestamp
+        && (
+          (
+            changed.hasAny(['packsSelectedOrder'])
+            && !changed.hasAny(['pendingTournament'])
+            && (
+              request.resource.data.packsSelectedOrder.size()
+                == resource.data.packsSelectedOrder.size() + 1
+              || request.resource.data.packsSelectedOrder.size()
+                == resource.data.packsSelectedOrder.size() - 1
+            )
+          )
+          || (
+            !changed.hasAny(['packsSelectedOrder'])
+            && request.resource.data.keys().hasAll(['pendingTournament'])
+            && request.resource.data.pendingTournament is map
+          )
+        );
+    }
+
     // Users — anyone can create their own; only admin can read all or change status/role
     match /users/{userId} {
       allow read: if isAuthed() && (request.auth.uid == userId || isAdmin());
@@ -130,6 +186,15 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /activeChaosDrafts/{ownerId} {
+      allow read: if isAdmin() && request.auth.uid == ownerId;
+      allow create: if isAdmin() && validChaosCheckpointCreate(ownerId);
+      allow update: if isAdmin()
+        && request.auth.uid == ownerId
+        && validChaosCheckpointUpdate();
+      allow delete: if isAdmin() && request.auth.uid == ownerId;
+    }
+
     // Private inventory — approved users read all (for Draft Inventory view);
     // users write only their own; admin can write any (needed for batchDeduct on finalize)
     match /privateInventory/{itemId} {
@@ -144,7 +209,8 @@ service cloud.firestore {
     // only admin can set status to 'finalized'
     match /drafts/{draftId} {
       allow read: if isApproved();
-      allow create: if isApproved();
+      allow create: if isApproved()
+        && (request.resource.data.type != 'chaos' || isAdmin());
       allow update: if isApproved() && (
         isAdmin()
         || nonAdminDraftUpdateAllowed()
